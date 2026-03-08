@@ -104,12 +104,13 @@ func (api *Router) resolveOpenListCover(ctx context.Context, id string) (string,
 		return "", nil
 	}
 
-	artworkID, err := model.ParseArtworkID(strings.TrimSpace(id))
-	if err != nil {
-		return "", nil
+	artworkID, parseErr := model.ParseArtworkID(strings.TrimSpace(id))
+	if parseErr != nil {
+		return "", parseErr
 	}
 
 	var song *model.MediaFile
+	var err error
 	switch artworkID.Kind {
 	case model.KindMediaFileArtwork:
 		song, err = api.ds.MediaFile(ctx).Get(artworkID.ID)
