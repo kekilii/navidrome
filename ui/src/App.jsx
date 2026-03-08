@@ -119,7 +119,11 @@ const Admin = (props) => {
           options={{ subMenu: 'settings' }}
         />,
         permissions === 'admin' ? (
-          <Resource name="openlist" {...openlist} options={{ subMenu: 'settings' }} />
+          <Resource
+            name="openlist"
+            {...openlist}
+            options={{ subMenu: 'settings' }}
+          />
         ) : null,
         permissions === 'admin' ? (
           <Resource
