@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/core/artwork"
 	"github.com/navidrome/navidrome/core/lyrics"
+	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server/subsonic/responses"
 	"github.com/navidrome/navidrome/tests"
@@ -30,6 +33,16 @@ var _ = Describe("MediaRetrievalController", func() {
 	var w *httptest.ResponseRecorder
 
 	BeforeEach(func() {
+		for _, key := range []string{
+			"OPENLIST_BASE",
+			"OPENLIST_USER",
+			"OPENLIST_PASS",
+			"OPENLIST_ENABLED",
+			"COVER_ENABLED",
+			"STREAM_ENABLED",
+		} {
+			Expect(os.Unsetenv(key)).To(Succeed())
+		}
 		ds = &tests.MockDataStore{
 			MockedMediaFile: mockRepo,
 		}
@@ -38,6 +51,7 @@ var _ = Describe("MediaRetrievalController", func() {
 		w = httptest.NewRecorder()
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.LyricsPriority = "embedded,.lrc"
+		Expect(openlist.Bootstrap(ds)).To(Succeed())
 	})
 
 	Describe("GetCoverArt", func() {
@@ -74,6 +88,151 @@ var _ = Describe("MediaRetrievalController", func() {
 			_, err := router.GetCoverArt(w, r)
 
 			Expect(err).To(MatchError("weird error"))
+		})
+
+		It("redirects to openlist when mf cover is available", func() {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/auth/login":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"code": 200,
+						"data": map[string]any{"token": "openlist-token"},
+					})
+				case "/api/fs/get":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"code": 200,
+						"data": map[string]any{
+							"raw_url": "/d/Artist/Album/cover.jpg",
+							"is_dir":  false,
+						},
+					})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			DeferCleanup(srv.Close)
+
+			mockRepo.SetData(model.MediaFiles{
+				{
+					ID:          "song-1",
+					Path:        "Artist/Album/track.flac",
+					LibraryPath: "/music",
+				},
+			})
+
+			_, err := openlist.Update(ds, openlist.Config{
+				Enabled:       true,
+				OpenListBase:  srv.URL,
+				OpenListUser:  "admin",
+				OpenListPass:  "secret",
+				CoverEnabled:  true,
+				StreamEnabled: true,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			r := newGetRequest("id=mf-song-1")
+			_, err = router.GetCoverArt(w, r)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(w.Code).To(Equal(http.StatusFound))
+			Expect(w.Header().Get("Location")).To(Equal(srv.URL + "/d/Artist/Album/cover.jpg"))
+			Expect(artwork.recvId).To(Equal(""))
+		})
+
+		It("redirects to openlist when al cover is available", func() {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/auth/login":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"code": 200,
+						"data": map[string]any{"token": "openlist-token"},
+					})
+				case "/api/fs/get":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"code": 200,
+						"data": map[string]any{
+							"raw_url": "/d/Artist/Album/cover.jpg",
+							"is_dir":  false,
+						},
+					})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			DeferCleanup(srv.Close)
+
+			mockRepo.SetData(model.MediaFiles{
+				{
+					ID:          "song-1",
+					AlbumID:     "album-1",
+					Path:        "Artist/Album/track.flac",
+					LibraryPath: "/music",
+				},
+			})
+
+			_, err := openlist.Update(ds, openlist.Config{
+				Enabled:       true,
+				OpenListBase:  srv.URL,
+				OpenListUser:  "admin",
+				OpenListPass:  "secret",
+				CoverEnabled:  true,
+				StreamEnabled: true,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			r := newGetRequest("id=al-album-1")
+			_, err = router.GetCoverArt(w, r)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(w.Code).To(Equal(http.StatusFound))
+			Expect(w.Header().Get("Location")).To(Equal(srv.URL + "/d/Artist/Album/cover.jpg"))
+			Expect(artwork.recvId).To(Equal(""))
+		})
+
+		It("falls back to existing artwork when openlist cover lookup fails", func() {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/auth/login":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"code": 200,
+						"data": map[string]any{"token": "openlist-token"},
+					})
+				case "/api/fs/get":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"code":    500,
+						"message": "not found",
+					})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			DeferCleanup(srv.Close)
+
+			mockRepo.SetData(model.MediaFiles{
+				{
+					ID:          "song-1",
+					Path:        "Artist/Album/track.flac",
+					LibraryPath: "/music",
+				},
+			})
+
+			_, err := openlist.Update(ds, openlist.Config{
+				Enabled:       true,
+				OpenListBase:  srv.URL,
+				OpenListUser:  "admin",
+				OpenListPass:  "secret",
+				CoverEnabled:  true,
+				StreamEnabled: true,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			r := newGetRequest("id=mf-song-1")
+			_, err = router.GetCoverArt(w, r)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(w.Code).To(Equal(http.StatusOK))
+			Expect(w.Body.String()).To(Equal(artwork.data))
+			Expect(artwork.recvId).To(Equal("mf-song-1"))
 		})
 
 		When("client disconnects (context is cancelled)", func() {

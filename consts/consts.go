@@ -17,6 +17,12 @@ const (
 	LastScanErrorKey              = "LastScanError"
 	LastScanTypeKey               = "LastScanType"
 	LastScanStartTimeKey          = "LastScanStartTime"
+	OpenListEnabledKey            = "OpenListEnabled"
+	OpenListBaseKey               = "OpenListBase"
+	OpenListUserKey               = "OpenListUser"
+	OpenListPassKey               = "OpenListPass"
+	OpenListCoverEnabledKey       = "OpenListCoverEnabled"
+	OpenListStreamEnabledKey      = "OpenListStreamEnabled"
 
 	UIAuthorizationHeader  = "X-ND-Authorization"
 	UIClientUniqueIDHeader = "X-ND-Client-Unique-Id"

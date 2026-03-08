@@ -10,6 +10,7 @@ import (
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/consts"
+	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/resources"
@@ -67,6 +68,12 @@ func (api *Router) GetCoverArt(w http.ResponseWriter, r *http.Request) (*respons
 	size := p.IntOr("size", 0)
 	square := p.BoolOr("square", false)
 
+	target, err := api.resolveOpenListCover(ctx, id)
+	if err == nil && target != "" {
+		http.Redirect(w, r, target, http.StatusFound)
+		return nil, nil
+	}
+
 	imgReader, lastUpdate, err := api.artwork.GetOrPlaceholder(ctx, id, size, square)
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -89,6 +96,52 @@ func (api *Router) GetCoverArt(w http.ResponseWriter, r *http.Request) (*respons
 	}
 
 	return nil, err
+}
+
+func (api *Router) resolveOpenListCover(ctx context.Context, id string) (string, error) {
+	cfg := openlist.Current()
+	if !cfg.Enabled || !cfg.CoverEnabled || !openlist.IsConfigured(cfg) {
+		return "", nil
+	}
+
+	artworkID, err := model.ParseArtworkID(strings.TrimSpace(id))
+	if err != nil {
+		return "", nil
+	}
+
+	var song *model.MediaFile
+	switch artworkID.Kind {
+	case model.KindMediaFileArtwork:
+		song, err = api.ds.MediaFile(ctx).Get(artworkID.ID)
+	case model.KindAlbumArtwork:
+		songs, getErr := api.ds.MediaFile(ctx).GetAll(filter.SongsByAlbum(artworkID.ID))
+		if getErr != nil {
+			return "", getErr
+		}
+		if len(songs) == 0 {
+			return "", model.ErrNotFound
+		}
+		song = &songs[0]
+	default:
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	if strings.TrimSpace(song.LibraryPath) == "" {
+		return "", nil
+	}
+
+	coverPath := openlist.BuildCoverPath(song.Path)
+	if coverPath == "" {
+		return "", nil
+	}
+	openListPath := openlist.BuildOpenListPath(coverPath, song.LibraryPath)
+	if openListPath == "" {
+		return "", nil
+	}
+	return openlist.ResolveRawURL(ctx, openListPath)
 }
 
 func (api *Router) GetLyrics(r *http.Request) (*responses.Subsonic, error) {

@@ -195,6 +195,20 @@
         "command": "Command"
       }
     },
+    "openlist": {
+      "name": "OpenList |||| OpenList",
+      "fields": {
+        "enabled": "OPENLIST_ENABLED",
+        "openlistBase": "OPENLIST_BASE",
+        "openlistUser": "OPENLIST_USER",
+        "openlistPass": "OPENLIST_PASS",
+        "coverEnabled": "COVER_ENABLED",
+        "streamEnabled": "STREAM_ENABLED"
+      },
+      "message": {
+        "keepPassword": "Leave blank to keep the current password"
+      }
+    },
     "playlist": {
       "name": "Playlist |||| Playlists",
       "fields": {

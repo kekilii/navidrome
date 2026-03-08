@@ -16,6 +16,7 @@ import (
 	"github.com/navidrome/navidrome/core/external"
 	lyricssvc "github.com/navidrome/navidrome/core/lyrics"
 	"github.com/navidrome/navidrome/core/metrics"
+	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/core/playback"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/core/scrobbler"
@@ -57,6 +58,9 @@ func New(ds model.DataStore, artwork artwork.Artwork, streamer core.MediaStreame
 	playlists playlistsvc.Playlists, scrobbler scrobbler.PlayTracker, share core.Share, playback playback.PlaybackServer,
 	metrics metrics.Metrics, lyrics lyricssvc.Lyrics,
 ) *Router {
+	if err := openlist.Bootstrap(ds); err != nil {
+		log.Warn("Could not bootstrap OpenList settings", err)
+	}
 	r := &Router{
 		ds:        ds,
 		artwork:   artwork,

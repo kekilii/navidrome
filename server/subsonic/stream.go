@@ -10,6 +10,7 @@ import (
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core"
+	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -60,6 +61,12 @@ func (api *Router) Stream(w http.ResponseWriter, r *http.Request) (*responses.Su
 	format, _ := p.String("format")
 	timeOffset := p.IntOr("timeOffset", 0)
 
+	target, err := api.resolveOpenListStream(ctx, id)
+	if err == nil && target != "" {
+		http.Redirect(w, r, target, http.StatusFound)
+		return nil, nil
+	}
+
 	stream, err := api.streamer.NewStream(ctx, id, format, maxBitRate, timeOffset)
 	if err != nil {
 		return nil, err
@@ -78,6 +85,27 @@ func (api *Router) Stream(w http.ResponseWriter, r *http.Request) (*responses.Su
 	api.serveStream(ctx, w, r, stream, id)
 
 	return nil, nil
+}
+
+func (api *Router) resolveOpenListStream(ctx context.Context, id string) (string, error) {
+	cfg := openlist.Current()
+	if !cfg.Enabled || !cfg.StreamEnabled || !openlist.IsConfigured(cfg) {
+		return "", nil
+	}
+
+	song, err := api.ds.MediaFile(ctx).Get(id)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(song.LibraryPath) == "" {
+		return "", nil
+	}
+
+	openListPath := openlist.BuildOpenListPath(song.Path, song.LibraryPath)
+	if openListPath == "" {
+		return "", nil
+	}
+	return openlist.ResolveRawURL(ctx, openListPath)
 }
 
 func (api *Router) Download(w http.ResponseWriter, r *http.Request) (*responses.Subsonic, error) {

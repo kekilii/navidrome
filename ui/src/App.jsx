@@ -7,6 +7,7 @@ import dataProvider from './dataProvider'
 import authProvider from './authProvider'
 import { Layout, Login, Logout } from './layout'
 import transcoding from './transcoding'
+import openlist from './openlist'
 import player from './player'
 import user from './user'
 import song from './song'
@@ -117,6 +118,9 @@ const Admin = (props) => {
           {...player}
           options={{ subMenu: 'settings' }}
         />,
+        permissions === 'admin' ? (
+          <Resource name="openlist" {...openlist} options={{ subMenu: 'settings' }} />
+        ) : null,
         permissions === 'admin' ? (
           <Resource
             name="transcoding"
