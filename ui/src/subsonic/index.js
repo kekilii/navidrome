@@ -123,7 +123,9 @@ const resolveOpenListStreamUrl = async (id, fallbackUrl = '') => {
     return fallback
   }
   try {
-    const resp = await httpClient(`${REST_URL}/openlist/stream/${encodeURIComponent(id)}`)
+    const resp = await httpClient(
+      `${REST_URL}/openlist/stream/${encodeURIComponent(id)}`,
+    )
     const rawUrl = resp?.json?.rawUrl?.trim?.() ?? ''
     if (rawUrl) {
       return rawUrl
