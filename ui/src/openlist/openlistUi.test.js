@@ -41,4 +41,14 @@ describe('OpenList UI wiring', () => {
 
     expect(source).not.toContain('record ? record.id')
   })
+
+  it('disables default edit actions to hide redundant delete button', () => {
+    const editPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      'OpenListEdit.jsx',
+    )
+    const source = fs.readFileSync(editPath, 'utf8')
+
+    expect(source).toContain('actions={false}')
+  })
 })

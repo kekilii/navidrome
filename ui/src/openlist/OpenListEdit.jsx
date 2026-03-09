@@ -19,7 +19,7 @@ const OpenListTitle = () => {
 
 const OpenListEdit = (props) => {
   return (
-    <Edit id="openlist" title={<OpenListTitle />} {...props}>
+    <Edit id="openlist" title={<OpenListTitle />} actions={false} {...props}>
       <SimpleForm variant={'outlined'}>
         <BooleanInput source="enabled" />
         <TextInput source="openlistBase" fullWidth />
