@@ -50,5 +50,7 @@ describe('OpenList UI wiring', () => {
     const source = fs.readFileSync(editPath, 'utf8')
 
     expect(source).toContain('actions={false}')
+    expect(source).toContain('toolbar={<OpenListToolbar />}')
+    expect(source).not.toContain('DeleteButton')
   })
 })
