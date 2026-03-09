@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useMediaQuery } from '@material-ui/core'
 import { ThemeProvider } from '@material-ui/core/styles'
@@ -62,6 +62,7 @@ const Player = () => {
   const gainInfo = useSelector((state) => state.replayGain)
   const [context, setContext] = useState(null)
   const [gainNode, setGainNode] = useState(null)
+  const lazyStreamResolvers = useRef(new Map())
 
   useEffect(() => {
     if (
@@ -145,11 +146,57 @@ const Player = () => {
     [gainInfo, isDesktop, playerTheme, translate, playerState.mode],
   )
 
+  const sanitizeAudioLists = useCallback((audioLists = []) => {
+    return audioLists.map((item) => {
+      if (item?.isRadio || typeof item?.musicSrc !== 'function') {
+        return item
+      }
+      const trackId = item.trackId || item?.song?.mediaFileId || item?.song?.id
+      if (!trackId) {
+        return { ...item, musicSrc: '' }
+      }
+      return { ...item, musicSrc: subsonic.streamUrl(trackId) }
+    })
+  }, [])
+
+  const toPlayableAudio = useCallback((item) => {
+    if (item.isRadio || !item.trackId) {
+      return item
+    }
+
+    const key = item.uuid || item.trackId
+    const fallbackSrc =
+      typeof item.musicSrc === 'string'
+        ? item.musicSrc
+        : subsonic.streamUrl(item.trackId)
+    const cached = lazyStreamResolvers.current.get(key)
+
+    if (!cached || cached.fallbackSrc !== fallbackSrc) {
+      const resolver = () =>
+        subsonic.resolveOpenListStreamUrl(item.trackId, fallbackSrc)
+      lazyStreamResolvers.current.set(key, { fallbackSrc, resolver })
+      return { ...item, musicSrc: resolver }
+    }
+
+    return { ...item, musicSrc: cached.resolver }
+  }, [])
+
+  useEffect(() => {
+    const validKeys = new Set(
+      playerState.queue.map((item) => item.uuid || item.trackId),
+    )
+    for (const key of lazyStreamResolvers.current.keys()) {
+      if (!validKeys.has(key)) {
+        lazyStreamResolvers.current.delete(key)
+      }
+    }
+  }, [playerState.queue])
+
   const options = useMemo(() => {
     const current = playerState.current || {}
     return {
       ...defaultOptions,
-      audioLists: playerState.queue.map((item) => item),
+      audioLists: playerState.queue.map((item) => toPlayableAudio(item)),
       playIndex: playerState.playIndex,
       autoPlay: playerState.clear || playerState.playIndex === 0,
       clearPriorAudioLists: playerState.clear,
@@ -159,11 +206,12 @@ const Player = () => {
       defaultVolume: isMobilePlayer ? 1 : playerState.volume,
       showMediaSession: !current.isRadio,
     }
-  }, [playerState, defaultOptions, isMobilePlayer])
+  }, [playerState, defaultOptions, isMobilePlayer, toPlayableAudio])
 
   const onAudioListsChange = useCallback(
-    (_, audioLists, audioInfo) => dispatch(syncQueue(audioInfo, audioLists)),
-    [dispatch],
+    (_, audioLists, audioInfo) =>
+      dispatch(syncQueue(audioInfo, sanitizeAudioLists(audioLists))),
+    [dispatch, sanitizeAudioLists],
   )
 
   const nextSong = useCallback(() => {

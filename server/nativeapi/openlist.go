@@ -1,11 +1,14 @@
 package nativeapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/core/openlist"
+	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 )
 
@@ -19,10 +22,15 @@ type openListConfigPayload struct {
 	StreamEnabled bool   `json:"streamEnabled"`
 }
 
+type openListStreamPayload struct {
+	RawURL string `json:"rawUrl"`
+}
+
 func (api *Router) addOpenListRoute(r chi.Router) {
 	r.Route("/openlist", func(r chi.Router) {
-		r.Get("/{id}", getOpenListConfig())
-		r.Put("/{id}", updateOpenListConfig(api.ds))
+		r.With(adminOnlyMiddleware).Get("/{id}", getOpenListConfig())
+		r.With(adminOnlyMiddleware).Put("/{id}", updateOpenListConfig(api.ds))
+		r.Get("/stream/{id}", resolveOpenListStream(api.ds))
 	})
 }
 
@@ -87,4 +95,43 @@ func updateOpenListConfig(ds model.DataStore) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	}
+}
+
+func resolveOpenListStream(ds model.DataStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := chi.URLParam(r, "id")
+		target, err := resolveOpenListStreamURL(r.Context(), ds, id)
+		if err != nil {
+			log.Debug(r.Context(), "OpenList stream resolve failed", "id", id, err)
+			target = ""
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(openListStreamPayload{RawURL: target})
+	}
+}
+
+func resolveOpenListStreamURL(ctx context.Context, ds model.DataStore, id string) (string, error) {
+	cfg := openlist.Current()
+	if !cfg.Enabled || !cfg.StreamEnabled || !openlist.IsConfigured(cfg) {
+		return "", nil
+	}
+
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", nil
+	}
+
+	song, err := ds.MediaFile(ctx).Get(id)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(song.LibraryPath) == "" {
+		return "", nil
+	}
+
+	openListPath := openlist.BuildOpenListPath(song.Path, song.LibraryPath)
+	if openListPath == "" {
+		return "", nil
+	}
+	return openlist.ResolveRawURL(ctx, openListPath)
 }

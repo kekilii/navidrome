@@ -87,11 +87,11 @@ func (api *Router) routes() http.Handler {
 		api.addMissingFilesRoute(r)
 		api.addKeepAliveRoute(r)
 		api.addInsightsRoute(r)
+		api.addOpenListRoute(r)
 
 		r.With(adminOnlyMiddleware).Group(func(r chi.Router) {
 			api.addInspectRoute(r)
 			api.addConfigRoute(r)
-			api.addOpenListRoute(r)
 			api.addUserLibraryRoute(r)
 			api.addPluginRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)

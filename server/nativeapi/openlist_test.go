@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/navidrome/navidrome/conf/configtest"
 	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/core/auth"
+	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/server"
 	"github.com/navidrome/navidrome/tests"
@@ -27,6 +29,7 @@ var _ = Describe("OpenList API", func() {
 	var router http.Handler
 	var adminUser, regularUser model.User
 	var props *tests.MockedPropertyRepo
+	var mediaRepo *tests.MockMediaFileRepo
 
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
@@ -44,9 +47,18 @@ var _ = Describe("OpenList API", func() {
 
 		props = &tests.MockedPropertyRepo{}
 		userRepo := tests.CreateMockUserRepo()
+		mediaRepo = tests.CreateMockMediaFileRepo()
+		mediaRepo.SetData(model.MediaFiles{
+			{
+				ID:          "song-1",
+				Path:        "Artist/Album/track.flac",
+				LibraryPath: "/music",
+			},
+		})
 		ds = &tests.MockDataStore{
-			MockedUser:     userRepo,
-			MockedProperty: props,
+			MockedMediaFile: mediaRepo,
+			MockedUser:      userRepo,
+			MockedProperty:  props,
 		}
 		auth.Init(ds)
 		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil)
@@ -159,10 +171,101 @@ var _ = Describe("OpenList API", func() {
 		Expect(props.Data[consts.OpenListCoverEnabledKey]).To(Equal("false"))
 		Expect(props.Data[consts.OpenListStreamEnabledKey]).To(Equal("true"))
 	})
+
+	It("allows non-admin user to resolve stream raw url", func() {
+		restoreClient := openlist.SetHTTPClientForTests(&http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				switch req.URL.Path {
+				case "/api/auth/login":
+					return jsonResponse(map[string]any{
+						"code": 200,
+						"data": map[string]any{"token": "openlist-token"},
+					}), nil
+				case "/api/fs/get":
+					return jsonResponse(map[string]any{
+						"code": 200,
+						"data": map[string]any{
+							"raw_url": "/d/Artist/Album/track.flac",
+							"is_dir":  false,
+						},
+					}), nil
+				default:
+					return jsonResponse(map[string]any{
+						"code":    404,
+						"message": "not found",
+					}), nil
+				}
+			}),
+		})
+		DeferCleanup(restoreClient)
+
+		_, err := openlist.Update(ds, openlist.Config{
+			Enabled:       true,
+			OpenListBase:  "http://openlist.local",
+			OpenListUser:  "admin",
+			OpenListPass:  "secret",
+			CoverEnabled:  true,
+			StreamEnabled: true,
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		token, err := auth.CreateToken(&regularUser)
+		Expect(err).ToNot(HaveOccurred())
+
+		req := httptest.NewRequest(http.MethodGet, "/openlist/stream/song-1", nil)
+		req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		Expect(w.Code).To(Equal(http.StatusOK))
+		var payload openListStreamPayload
+		Expect(json.Unmarshal(w.Body.Bytes(), &payload)).To(Succeed())
+		Expect(payload.RawURL).To(Equal("http://openlist.local/d/Artist/Album/track.flac"))
+	})
+
+	It("returns empty raw url when resolve fails", func() {
+		_, err := openlist.Update(ds, openlist.Config{
+			Enabled:       true,
+			OpenListBase:  "http://127.0.0.1:1",
+			OpenListUser:  "admin",
+			OpenListPass:  "secret",
+			CoverEnabled:  true,
+			StreamEnabled: true,
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		token, err := auth.CreateToken(&regularUser)
+		Expect(err).ToNot(HaveOccurred())
+
+		req := httptest.NewRequest(http.MethodGet, "/openlist/stream/song-1", nil)
+		req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		Expect(w.Code).To(Equal(http.StatusOK))
+		var payload openListStreamPayload
+		Expect(json.Unmarshal(w.Body.Bytes(), &payload)).To(Succeed())
+		Expect(payload.RawURL).To(BeEmpty())
+	})
 })
 
 func openListEncKey() []byte {
 	key := cmp.Or(conf.Server.PasswordEncryptionKey, consts.DefaultEncryptionKey)
 	sum := sha256.Sum256([]byte(key))
 	return sum[:]
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func jsonResponse(payload any) *http.Response {
+	data, _ := json.Marshal(payload)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(data)),
+		Header:     make(http.Header),
+	}
 }

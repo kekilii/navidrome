@@ -24,6 +24,20 @@ type tokenCache struct {
 
 var tokens tokenCache
 
+// SetHTTPClientForTests replaces the internal HTTP client and returns a restore function.
+// It is intended for tests to stub OpenList responses without network listeners.
+func SetHTTPClientForTests(client *http.Client) func() {
+	previous := httpClient
+	if client != nil {
+		httpClient = client
+	}
+	tokens.clear()
+	return func() {
+		httpClient = previous
+		tokens.clear()
+	}
+}
+
 type openListResp[T any] struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`

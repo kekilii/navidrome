@@ -1,5 +1,6 @@
 import { baseUrl } from '../utils'
 import { httpClient } from '../dataProvider'
+import { REST_URL } from '../consts'
 
 const url = (command, id, options) => {
   const username = localStorage.getItem('username')
@@ -116,6 +117,23 @@ const streamUrl = (id, options) => {
   )
 }
 
+const resolveOpenListStreamUrl = async (id, fallbackUrl = '') => {
+  const fallback = fallbackUrl || streamUrl(id)
+  if (!id) {
+    return fallback
+  }
+  try {
+    const resp = await httpClient(`${REST_URL}/openlist/stream/${encodeURIComponent(id)}`)
+    const rawUrl = resp?.json?.rawUrl?.trim?.() ?? ''
+    if (rawUrl) {
+      return rawUrl
+    }
+  } catch (_e) {
+    // Silent fallback to the default stream endpoint.
+  }
+  return fallback
+}
+
 export default {
   url,
   ping,
@@ -131,6 +149,7 @@ export default {
   getCoverArtUrl,
   getAvatarUrl,
   streamUrl,
+  resolveOpenListStreamUrl,
   getAlbumInfo,
   getArtistInfo,
   getTopSongs,
