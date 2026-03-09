@@ -184,7 +184,9 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('does not retry openlist for the same track after fallback', async () => {
-    subsonic.resolveOpenListStreamUrl.mockRejectedValue(new Error('network down'))
+    subsonic.resolveOpenListStreamUrl.mockRejectedValue(
+      new Error('network down'),
+    )
 
     render(<Player />)
 
@@ -243,7 +245,9 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('keeps fallback decision for a track removed and re-added in the same session', async () => {
-    subsonic.resolveOpenListStreamUrl.mockRejectedValue(new Error('network down'))
+    subsonic.resolveOpenListStreamUrl.mockRejectedValue(
+      new Error('network down'),
+    )
 
     const { rerender } = render(<Player />)
 
