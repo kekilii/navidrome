@@ -44,7 +44,7 @@ var _ = Describe("handleStream", func() {
 		libraryRoot = GinkgoT().TempDir()
 		trackPath := filepath.Join(libraryRoot, "Artist", "Album", "track.flac")
 		Expect(os.MkdirAll(filepath.Dir(trackPath), 0o755)).To(Succeed())
-		Expect(os.WriteFile(trackPath, []byte("dummy-audio"), 0o644)).To(Succeed())
+		Expect(os.WriteFile(trackPath, []byte("dummy-audio"), 0o600)).To(Succeed())
 
 		mediaRepo = tests.CreateMockMediaFileRepo()
 		mediaRepo.SetData(model.MediaFiles{
