@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/navidrome/navidrome/core/openlist"
@@ -111,27 +110,5 @@ func resolveOpenListStream(ds model.DataStore) http.HandlerFunc {
 }
 
 func resolveOpenListStreamURL(ctx context.Context, ds model.DataStore, id string) (string, error) {
-	cfg := openlist.Current()
-	if !cfg.Enabled || !cfg.StreamEnabled || !openlist.IsConfigured(cfg) {
-		return "", nil
-	}
-
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return "", nil
-	}
-
-	song, err := ds.MediaFile(ctx).Get(id)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(song.LibraryPath) == "" {
-		return "", nil
-	}
-
-	openListPath := openlist.BuildOpenListPath(song.Path, song.LibraryPath)
-	if openListPath == "" {
-		return "", nil
-	}
-	return openlist.ResolveRawURL(ctx, openListPath)
+	return openlist.ResolveStreamRawURLBySongID(ctx, ds, id)
 }

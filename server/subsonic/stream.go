@@ -88,24 +88,7 @@ func (api *Router) Stream(w http.ResponseWriter, r *http.Request) (*responses.Su
 }
 
 func (api *Router) resolveOpenListStream(ctx context.Context, id string) (string, error) {
-	cfg := openlist.Current()
-	if !cfg.Enabled || !cfg.StreamEnabled || !openlist.IsConfigured(cfg) {
-		return "", nil
-	}
-
-	song, err := api.ds.MediaFile(ctx).Get(id)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(song.LibraryPath) == "" {
-		return "", nil
-	}
-
-	openListPath := openlist.BuildOpenListPath(song.Path, song.LibraryPath)
-	if openListPath == "" {
-		return "", nil
-	}
-	return openlist.ResolveRawURL(ctx, openListPath)
+	return openlist.ResolveStreamRawURLBySongID(ctx, api.ds, id)
 }
 
 func (api *Router) Download(w http.ResponseWriter, r *http.Request) (*responses.Subsonic, error) {

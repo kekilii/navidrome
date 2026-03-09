@@ -63,6 +63,8 @@ const Player = () => {
   const [context, setContext] = useState(null)
   const [gainNode, setGainNode] = useState(null)
   const lazyStreamResolvers = useRef(new Map())
+  const resolvedUrlCache = useRef(new Map())
+  const resolveInFlight = useRef(new Map())
 
   useEffect(() => {
     if (
@@ -146,25 +148,101 @@ const Player = () => {
     [gainInfo, isDesktop, playerTheme, translate, playerState.mode],
   )
 
-  const sanitizeAudioLists = useCallback((audioLists = [], audioInfo = {}) => {
-    return audioLists.map((item) => {
-      if (item?.isRadio || typeof item?.musicSrc !== 'function') {
-        return item
-      }
-      const trackId = item.trackId || item?.song?.mediaFileId || item?.song?.id
-      if (!trackId) {
-        return { ...item, musicSrc: '' }
-      }
-      if (
-        audioInfo?.trackId === trackId &&
-        typeof audioInfo?.musicSrc === 'string' &&
-        audioInfo.musicSrc.trim() !== ''
-      ) {
-        return { ...item, musicSrc: audioInfo.musicSrc }
-      }
-      return { ...item, musicSrc: subsonic.streamUrl(trackId) }
-    })
+  const getTrackId = useCallback((item) => {
+    return item?.trackId || item?.song?.mediaFileId || item?.song?.id || ''
   }, [])
+
+  const getFallbackMusicSrc = useCallback(
+    (item) => {
+      const trackId = getTrackId(item)
+      if (!trackId) {
+        return typeof item?.musicSrc === 'string' ? item.musicSrc : ''
+      }
+      if (typeof item?.musicSrc === 'string' && item.musicSrc.trim() !== '') {
+        return item.musicSrc
+      }
+      return subsonic.streamUrl(trackId)
+    },
+    [getTrackId],
+  )
+
+  const resolveTrackMusicSrc = useCallback(
+    (item) => {
+      if (!item || item.isRadio) {
+        return Promise.resolve(
+          typeof item?.musicSrc === 'string' ? item.musicSrc : '',
+        )
+      }
+
+      const trackId = getTrackId(item)
+      const fallbackSrc = getFallbackMusicSrc(item)
+      if (!trackId) {
+        return Promise.resolve(fallbackSrc)
+      }
+
+      const cachedResolved = resolvedUrlCache.current.get(trackId)
+      if (typeof cachedResolved === 'string' && cachedResolved.trim() !== '') {
+        return Promise.resolve(cachedResolved)
+      }
+
+      const pending = resolveInFlight.current.get(trackId)
+      if (pending) {
+        return pending
+      }
+
+      const request = subsonic
+        .resolveOpenListStreamUrl(trackId, fallbackSrc)
+        .then((resolved) => {
+          const finalURL =
+            typeof resolved === 'string' && resolved.trim() !== ''
+              ? resolved
+              : fallbackSrc
+          resolvedUrlCache.current.set(trackId, finalURL)
+          resolveInFlight.current.delete(trackId)
+          return finalURL
+        })
+        .catch(() => {
+          resolvedUrlCache.current.set(trackId, fallbackSrc)
+          resolveInFlight.current.delete(trackId)
+          return fallbackSrc
+        })
+
+      resolveInFlight.current.set(trackId, request)
+      return request
+    },
+    [getFallbackMusicSrc, getTrackId],
+  )
+
+  const sanitizeAudioLists = useCallback(
+    (audioLists = [], audioInfo = {}) => {
+      return audioLists.map((item) => {
+        if (item?.isRadio || typeof item?.musicSrc !== 'function') {
+          return item
+        }
+        const trackId = getTrackId(item)
+        if (!trackId) {
+          return { ...item, musicSrc: '' }
+        }
+        const cachedResolved = resolvedUrlCache.current.get(trackId)
+        if (
+          typeof cachedResolved === 'string' &&
+          cachedResolved.trim() !== ''
+        ) {
+          return { ...item, musicSrc: cachedResolved }
+        }
+        if (
+          audioInfo?.trackId === trackId &&
+          typeof audioInfo?.musicSrc === 'string' &&
+          audioInfo.musicSrc.trim() !== ''
+        ) {
+          resolvedUrlCache.current.set(trackId, audioInfo.musicSrc)
+          return { ...item, musicSrc: audioInfo.musicSrc }
+        }
+        return { ...item, musicSrc: subsonic.streamUrl(trackId) }
+      })
+    },
+    [getTrackId],
+  )
 
   const isQueueEquivalent = useCallback((nextQueue = [], currentQueue = []) => {
     if (nextQueue.length !== currentQueue.length) {
@@ -184,38 +262,33 @@ const Player = () => {
     })
   }, [])
 
-  const toPlayableAudio = useCallback((item) => {
-    if (item.isRadio || !item.trackId) {
-      return item
-    }
-
-    const key = item.uuid || item.trackId
-    const fallbackSrc =
-      typeof item.musicSrc === 'string'
-        ? item.musicSrc
-        : subsonic.streamUrl(item.trackId)
-    const cached = lazyStreamResolvers.current.get(key)
-
-    if (!cached || cached.fallbackSrc !== fallbackSrc) {
-      const resolver = () =>
-        subsonic.resolveOpenListStreamUrl(item.trackId, fallbackSrc)
-      lazyStreamResolvers.current.set(key, { fallbackSrc, resolver })
-      return { ...item, musicSrc: resolver }
-    }
-
-    return { ...item, musicSrc: cached.resolver }
-  }, [])
-
-  useEffect(() => {
-    const validKeys = new Set(
-      playerState.queue.map((item) => item.uuid || item.trackId),
-    )
-    for (const key of lazyStreamResolvers.current.keys()) {
-      if (!validKeys.has(key)) {
-        lazyStreamResolvers.current.delete(key)
+  const toPlayableAudio = useCallback(
+    (item) => {
+      if (item.isRadio) {
+        return item
       }
-    }
-  }, [playerState.queue])
+
+      const trackId = getTrackId(item)
+      if (!trackId) {
+        return item
+      }
+      const fallbackSrc = getFallbackMusicSrc(item)
+      const cachedResolved = resolvedUrlCache.current.get(trackId)
+      if (typeof cachedResolved === 'string' && cachedResolved.trim() !== '') {
+        return { ...item, musicSrc: cachedResolved }
+      }
+
+      const cached = lazyStreamResolvers.current.get(trackId)
+      if (!cached || cached.fallbackSrc !== fallbackSrc) {
+        const resolver = () => resolveTrackMusicSrc(item)
+        lazyStreamResolvers.current.set(trackId, { fallbackSrc, resolver })
+        return { ...item, musicSrc: resolver }
+      }
+
+      return { ...item, musicSrc: cached.resolver }
+    },
+    [getFallbackMusicSrc, getTrackId, resolveTrackMusicSrc],
+  )
 
   const options = useMemo(() => {
     const current = playerState.current || {}
@@ -269,10 +342,17 @@ const Player = () => {
       if (!preloaded) {
         const next = nextSong()
         if (next != null) {
-          const audio = new Audio()
-          audio.src = next.musicSrc
+          setPreload(true)
+          void resolveTrackMusicSrc(next).then((src) => {
+            const audio = new Audio()
+            audio.src = src
+          })
+          return
         }
-        setPreload(true)
+        if (!scrobbled) {
+          info.trackId && subsonic.scrobble(info.trackId, startTime)
+          setScrobbled(true)
+        }
         return
       }
 
@@ -281,7 +361,7 @@ const Player = () => {
         setScrobbled(true)
       }
     },
-    [startTime, scrobbled, nextSong, preloaded],
+    [preloaded, nextSong, resolveTrackMusicSrc, scrobbled, startTime],
   )
 
   const onAudioVolumeChange = useCallback(

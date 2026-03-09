@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/navidrome/navidrome/core/auth"
+	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/utils/req"
 )
@@ -22,10 +23,19 @@ func (pub *Router) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	target, err := openlist.ResolveStreamRawURLBySongID(ctx, pub.ds, info.id)
+	if err != nil {
+		log.Debug(ctx, "OpenList shared stream resolve failed", "id", info.id, err)
+	} else if target != "" {
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+
 	stream, err := pub.streamer.NewStream(ctx, info.id, info.format, info.bitrate, 0)
 	if err != nil {
 		log.Error(ctx, "Error starting shared stream", err)
 		http.Error(w, "invalid request", http.StatusInternalServerError)
+		return
 	}
 
 	// Make sure the stream will be closed at the end, to avoid leakage
