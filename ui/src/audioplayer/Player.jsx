@@ -146,7 +146,7 @@ const Player = () => {
     [gainInfo, isDesktop, playerTheme, translate, playerState.mode],
   )
 
-  const sanitizeAudioLists = useCallback((audioLists = []) => {
+  const sanitizeAudioLists = useCallback((audioLists = [], audioInfo = {}) => {
     return audioLists.map((item) => {
       if (item?.isRadio || typeof item?.musicSrc !== 'function') {
         return item
@@ -155,7 +155,32 @@ const Player = () => {
       if (!trackId) {
         return { ...item, musicSrc: '' }
       }
+      if (
+        audioInfo?.trackId === trackId &&
+        typeof audioInfo?.musicSrc === 'string' &&
+        audioInfo.musicSrc.trim() !== ''
+      ) {
+        return { ...item, musicSrc: audioInfo.musicSrc }
+      }
       return { ...item, musicSrc: subsonic.streamUrl(trackId) }
+    })
+  }, [])
+
+  const isQueueEquivalent = useCallback((nextQueue = [], currentQueue = []) => {
+    if (nextQueue.length !== currentQueue.length) {
+      return false
+    }
+    return nextQueue.every((item, idx) => {
+      const current = currentQueue[idx] || {}
+      const nextSrc = typeof item?.musicSrc === 'string' ? item.musicSrc : ''
+      const currentSrc =
+        typeof current?.musicSrc === 'string' ? current.musicSrc : ''
+      return (
+        (item?.uuid || '') === (current?.uuid || '') &&
+        (item?.trackId || '') === (current?.trackId || '') &&
+        (item?.isRadio || false) === (current?.isRadio || false) &&
+        nextSrc === currentSrc
+      )
     })
   }, [])
 
@@ -209,9 +234,14 @@ const Player = () => {
   }, [playerState, defaultOptions, isMobilePlayer, toPlayableAudio])
 
   const onAudioListsChange = useCallback(
-    (_, audioLists, audioInfo) =>
-      dispatch(syncQueue(audioInfo, sanitizeAudioLists(audioLists))),
-    [dispatch, sanitizeAudioLists],
+    (_, audioLists, audioInfo) => {
+      const normalizedQueue = sanitizeAudioLists(audioLists, audioInfo)
+      if (isQueueEquivalent(normalizedQueue, playerState.queue)) {
+        return
+      }
+      dispatch(syncQueue(audioInfo, normalizedQueue))
+    },
+    [dispatch, isQueueEquivalent, playerState.queue, sanitizeAudioLists],
   )
 
   const nextSong = useCallback(() => {
