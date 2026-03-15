@@ -24,6 +24,9 @@ const TRANSCODE_CODECS = ['flac', 'opus', 'mp3']
 const SAFARI_TRANSCODE_CODECS = ['mp3']
 
 function canPlay(audio, mimeList) {
+  if (!audio || typeof audio.canPlayType !== 'function') {
+    return false
+  }
   return mimeList.some((m) => {
     const result = audio.canPlayType(m)
     return result === 'probably' || result === 'maybe'
