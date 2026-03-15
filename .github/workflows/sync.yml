@@ -1,0 +1,71 @@
+name: sync-upstream
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.FORK_PUSH_TOKEN || github.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/navidrome/navidrome.git
+          git fetch origin --prune
+          git fetch upstream --prune
+
+      - name: Verify required branches exist
+        run: |
+          git show-ref --verify --quiet refs/remotes/origin/master
+          git show-ref --verify --quiet refs/remotes/upstream/master
+
+      - name: Check for upstream updates
+        id: updates
+        run: |
+          origin_sha="$(git rev-parse refs/remotes/origin/master)"
+          upstream_sha="$(git rev-parse refs/remotes/upstream/master)"
+
+          echo "origin_sha=$origin_sha" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+
+          if [ "$origin_sha" = "$upstream_sha" ]; then
+            echo "has_updates=false" >> "$GITHUB_OUTPUT"
+            echo "No new commits in upstream/master. Skipping merge and push." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "has_updates=true" >> "$GITHUB_OUTPUT"
+            echo "Upstream has new commits. Continuing with merge." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Merge upstream into fork
+        id: merge
+        if: steps.updates.outputs.has_updates == 'true'
+        run: |
+          git checkout -B master origin/master
+          git merge --no-edit upstream/master
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+          echo "Merged upstream/master into origin/master successfully." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push to fork
+        if: steps.updates.outputs.has_updates == 'true' && steps.merge.outputs.merged == 'true'
+        run: git push origin HEAD:master
