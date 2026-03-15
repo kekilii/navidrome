@@ -18,7 +18,7 @@ import (
 	"github.com/navidrome/navidrome/utils/req"
 )
 
-func (api *Router) serveStream(ctx context.Context, w http.ResponseWriter, r *http.Request, stream *core.Stream, id string) {
+func (api *Router) serveStream(ctx context.Context, w http.ResponseWriter, r *http.Request, stream *stream.Stream, id string) {
 	if stream.Seekable() {
 		http.ServeContent(w, r, stream.Name(), stream.ModTime(), stream)
 	} else {
@@ -140,7 +140,8 @@ func (api *Router) Download(w http.ResponseWriter, r *http.Request) (*responses.
 
 	switch v := entity.(type) {
 	case *model.MediaFile:
-		stream, err := api.streamer.NewStream(ctx, id, format, maxBitRate, 0)
+		streamReq := api.transcodeDecision.ResolveRequest(ctx, v, format, maxBitRate, 0)
+		stream, err := api.streamer.NewStream(ctx, v, streamReq)
 		if err != nil {
 			return nil, err
 		}
