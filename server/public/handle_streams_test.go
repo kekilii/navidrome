@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/go-chi/jwtauth/v5"
-	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/auth"
 	"github.com/navidrome/navidrome/core/openlist"
+	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
@@ -154,7 +154,7 @@ var _ = Describe("handleStream", func() {
 		})
 		Expect(err).ToNot(HaveOccurred())
 
-		streamer := &countingStreamer{delegate: core.NewMediaStreamer(ds, nil, nil)}
+		streamer := &countingStreamer{delegate: stream.NewMediaStreamer(ds, nil, nil)}
 		router := &Router{ds: ds, streamer: streamer}
 		w := httptest.NewRecorder()
 		r := newPublicStreamRequest(streamToken)
@@ -220,12 +220,12 @@ func newPublicStreamRequest(token string) *http.Request {
 }
 
 type countingStreamer struct {
-	delegate core.MediaStreamer
+	delegate stream.MediaStreamer
 	called   bool
 	err      error
 }
 
-func (s *countingStreamer) NewStream(ctx context.Context, id string, reqFormat string, reqBitRate int, offset int) (*core.Stream, error) {
+func (s *countingStreamer) NewStream(ctx context.Context, mf *model.MediaFile, req stream.Request) (*stream.Stream, error) {
 	s.called = true
 	if s.err != nil {
 		return nil, s.err
@@ -233,18 +233,7 @@ func (s *countingStreamer) NewStream(ctx context.Context, id string, reqFormat s
 	if s.delegate == nil {
 		return nil, errors.New("missing streamer delegate")
 	}
-	return s.delegate.NewStream(ctx, id, reqFormat, reqBitRate, offset)
-}
-
-func (s *countingStreamer) DoStream(ctx context.Context, mf *model.MediaFile, reqFormat string, reqBitRate int, reqOffset int) (*core.Stream, error) {
-	s.called = true
-	if s.err != nil {
-		return nil, s.err
-	}
-	if s.delegate == nil {
-		return nil, errors.New("missing streamer delegate")
-	}
-	return s.delegate.DoStream(ctx, mf, reqFormat, reqBitRate, reqOffset)
+	return s.delegate.NewStream(ctx, mf, req)
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

@@ -8,8 +8,8 @@ import (
 	"net/http/httptest"
 	"os"
 
-	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/openlist"
+	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
@@ -136,12 +136,7 @@ type fakeStreamer struct {
 	err    error
 }
 
-func (f *fakeStreamer) NewStream(_ context.Context, _ string, _ string, _ int, _ int) (*core.Stream, error) {
-	f.called = true
-	return nil, f.err
-}
-
-func (f *fakeStreamer) DoStream(_ context.Context, _ *model.MediaFile, _ string, _ int, _ int) (*core.Stream, error) {
+func (f *fakeStreamer) NewStream(_ context.Context, _ *model.MediaFile, _ stream.Request) (*stream.Stream, error) {
 	f.called = true
 	return nil, f.err
 }

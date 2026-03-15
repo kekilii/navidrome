@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/openlist"
+	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -67,7 +67,17 @@ func (api *Router) Stream(w http.ResponseWriter, r *http.Request) (*responses.Su
 		return nil, nil
 	}
 
-	stream, err := api.streamer.NewStream(ctx, id, format, maxBitRate, timeOffset)
+	mf, err := api.ds.MediaFile(ctx).Get(id)
+	if err != nil {
+		return nil, err
+	}
+
+	streamReq := stream.Request{Format: format, BitRate: maxBitRate, Offset: timeOffset}
+	if api.transcodeDecision != nil {
+		streamReq = api.transcodeDecision.ResolveRequest(ctx, mf, format, maxBitRate, timeOffset)
+	}
+
+	stream, err := api.streamer.NewStream(ctx, mf, streamReq)
 	if err != nil {
 		return nil, err
 	}
