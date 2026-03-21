@@ -24,6 +24,7 @@ func (pub *Router) handleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+              // openlist
 	target, err := openlist.ResolveStreamRawURLBySongID(ctx, pub.ds, info.id)
 	if err != nil {
 		log.Debug(ctx, "OpenList shared stream resolve failed", "id", info.id, err)
@@ -31,20 +32,22 @@ func (pub *Router) handleStream(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
+	// end
 
 	mf, err := pub.ds.MediaFile(ctx).Get(info.id)
-	switch {
-	case errors.Is(err, model.ErrNotFound):
-		log.Warn(ctx, "Shared stream media file not found", "id", info.id, err)
-		http.Error(w, "file not found", http.StatusNotFound)
-		return
-	case err != nil:
-		log.Error(ctx, "Error loading shared stream media file", "id", info.id, err)
-		http.Error(w, "invalid request", http.StatusInternalServerError)
+	if err != nil {
+		if errors.Is(err, model.ErrNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+		} else {
+			log.Error(ctx, "Error retrieving media file for shared stream", "id", info.id, err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	mediaStream, err := pub.streamer.NewStream(ctx, mf, stream.Request{Format: info.format, BitRate: info.bitrate})
+	stream, err := pub.streamer.NewStream(ctx, mf, stream.Request{
+		Format: info.format, BitRate: info.bitrate,
+	})
 	if err != nil {
 		log.Error(ctx, "Error starting shared stream", err)
 		http.Error(w, "invalid request", http.StatusInternalServerError)
@@ -53,13 +56,13 @@ func (pub *Router) handleStream(w http.ResponseWriter, r *http.Request) {
 
 	// Make sure the stream will be closed at the end, to avoid leakage
 	defer func() {
-		if err := mediaStream.Close(); err != nil && log.IsGreaterOrEqualTo(log.LevelDebug) {
-			log.Error("Error closing shared stream", "id", info.id, "file", mediaStream.Name(), err)
+		if err := stream.Close(); err != nil && log.IsGreaterOrEqualTo(log.LevelDebug) {
+			log.Error("Error closing shared stream", "id", info.id, "file", stream.Name(), err)
 		}
 	}()
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Content-Duration", strconv.FormatFloat(float64(mediaStream.Duration()), 'G', -1, 32))
+	w.Header().Set("X-Content-Duration", strconv.FormatFloat(float64(stream.Duration()), 'G', -1, 32))
 
 	n, err := stream.Serve(ctx, w, r)
 	if err != nil || n == 0 {
