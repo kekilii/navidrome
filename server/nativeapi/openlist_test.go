@@ -61,7 +61,7 @@ var _ = Describe("OpenList API", func() {
 			MockedProperty:  props,
 		}
 		auth.Init(ds)
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil)
+		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil)
 		router = server.JWTVerifier(nativeRouter)
 
 		adminUser = model.User{
@@ -91,7 +91,7 @@ var _ = Describe("OpenList API", func() {
 			consts.OpenListCoverEnabledKey:  "true",
 			consts.OpenListStreamEnabledKey: "false",
 		}
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil)
+		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil)
 		router = server.JWTVerifier(nativeRouter)
 
 		token, err := auth.CreateToken(&adminUser)
@@ -135,7 +135,7 @@ var _ = Describe("OpenList API", func() {
 			consts.OpenListCoverEnabledKey:  "true",
 			consts.OpenListStreamEnabledKey: "true",
 		}
-		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil)
+		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil)
 		router = server.JWTVerifier(nativeRouter)
 
 		token, err := auth.CreateToken(&adminUser)
