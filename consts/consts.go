@@ -77,6 +77,7 @@ const (
 	PlaceholderAlbumArt       = "album-placeholder.webp"
 	PlaceholderAvatar         = "logo-192x192.png"
 	UICoverArtSize            = 300
+	UIThumbnailSize           = 80
 	DefaultUIVolume           = 100
 	DefaultUISearchDebounceMs = 200
 
@@ -107,6 +108,13 @@ const (
 
 	DefaultCacheSize            = 100 * 1024 * 1024 // 100MB
 	DefaultCacheCleanUpInterval = 10 * time.Minute
+)
+
+// Entity types
+const (
+	EntityArtist   = "artist"
+	EntityPlaylist = "playlist"
+	EntityRadio    = "radio"
 )
 
 const (
