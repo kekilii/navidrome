@@ -12,7 +12,6 @@ import (
 
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/conf/configtest"
-	"github.com/navidrome/navidrome/consts"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/utils/cache"
 	. "github.com/onsi/ginkgo/v2"
@@ -176,13 +175,13 @@ var _ = Describe("CacheWarmer", func() {
 			}).Should(Equal(0))
 		})
 
-		It("pre-caches both UICoverArtSize and UIThumbnailSize", func() {
+		It("pre-caches UICoverArtSize", func() {
 			cw := NewCacheWarmer(aw, fc).(*cacheWarmer)
 			cw.PreCache(model.MustParseArtworkID("al-1"))
 
 			Eventually(func() []int {
 				return aw.getCachedSizes()
-			}).Should(ContainElements(consts.UICoverArtSize, consts.UIThumbnailSize))
+			}).Should(ContainElements(conf.Server.UICoverArtSize))
 		})
 	})
 })

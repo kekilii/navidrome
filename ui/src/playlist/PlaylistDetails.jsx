@@ -18,6 +18,7 @@ import {
   OverflowTooltip,
   useImageLoadingState,
 } from '../common'
+import config from '../config'
 import subsonic from '../subsonic'
 
 const useStyles = makeStyles(
@@ -106,7 +107,7 @@ const PlaylistDetails = (props) => {
     handleCloseLightbox,
   } = useImageLoadingState(record.id)
 
-  const imageUrl = subsonic.getCoverArtUrl(record, 300, true)
+  const imageUrl = subsonic.getCoverArtUrl(record, config.uiCoverArtSize, true)
   const fullImageUrl = subsonic.getCoverArtUrl(record)
 
   return (

@@ -76,8 +76,6 @@ const (
 	PlaceholderArtistArt      = "artist-placeholder.webp"
 	PlaceholderAlbumArt       = "album-placeholder.webp"
 	PlaceholderAvatar         = "logo-192x192.png"
-	UICoverArtSize            = 300
-	UIThumbnailSize           = 80
 	DefaultUIVolume           = 100
 	DefaultUISearchDebounceMs = 200
 
@@ -90,6 +88,10 @@ const (
 	DefaultScannerExtractor = "taglib"
 	DefaultWatcherWait      = 5 * time.Second
 	Zwsp                    = string('\u200b')
+)
+
+const (
+	DefaultUICoverArtSize = 300
 )
 
 // Prometheus options

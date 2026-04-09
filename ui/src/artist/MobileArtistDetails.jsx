@@ -112,7 +112,7 @@ const MobileArtistDetails = ({ artistInfo, biography, record }) => {
               <CardMedia
                 key={record.id}
                 component="img"
-                src={subsonic.getCoverArtUrl(record, 300)}
+                src={subsonic.getCoverArtUrl(record, config.uiCoverArtSize)}
                 className={`${classes.cover} ${imageLoading ? classes.coverLoading : ''}`}
                 onClick={handleOpenLightbox}
                 onLoad={handleImageLoad}
