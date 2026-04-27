@@ -91,7 +91,8 @@ const (
 )
 
 const (
-	DefaultUICoverArtSize = 300
+	DefaultUICoverArtSize     = 300
+	DefaultMaxImageUploadSize = "10MB"
 )
 
 // Prometheus options
