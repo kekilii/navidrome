@@ -71,8 +71,8 @@ vi.mock('../utils/calculateReplayGain', () => ({
 vi.mock('../subsonic', () => ({
   default: {
     streamUrl: vi.fn((id) => `/rest/stream?id=${id}`),
-    scrobble: vi.fn(),
-    nowPlaying: vi.fn(),
+    reportPlayback: vi.fn(),
+    reportPlaybackKeepalive: vi.fn(),
   },
 }))
 

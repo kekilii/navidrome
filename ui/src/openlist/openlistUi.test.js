@@ -7,7 +7,7 @@ describe('OpenList UI wiring', () => {
   it('registers openlist resources from a dedicated helper module', () => {
     const resourcePath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      'resource.js',
+      'resource.jsx',
     )
     const source = fs.readFileSync(resourcePath, 'utf8')
 

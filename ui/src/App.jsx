@@ -44,7 +44,7 @@ import SharePlayer from './share/SharePlayer'
 import { HTML5Backend } from 'react-dnd-html5-backend'
 import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
-import { renderOpenListResource } from './openlist/resource'
+import { renderOpenListResource } from './openlist/resource.jsx'
 
 const history = createHashHistory()
 
