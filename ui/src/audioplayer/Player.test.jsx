@@ -1,7 +1,7 @@
 import React from 'react'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { Player } from './Player'
-import subsonic from '../subsonic'
+import { resolveOpenListStreamUrl } from '../openlist/stream'
 
 let latestPlayerProps = null
 let mockState = null
@@ -70,11 +70,14 @@ vi.mock('../utils/calculateReplayGain', () => ({
 
 vi.mock('../subsonic', () => ({
   default: {
-    resolveOpenListStreamUrl: vi.fn(),
     streamUrl: vi.fn((id) => `/rest/stream?id=${id}`),
     scrobble: vi.fn(),
     nowPlaying: vi.fn(),
   },
+}))
+
+vi.mock('../openlist/stream', () => ({
+  resolveOpenListStreamUrl: vi.fn(),
 }))
 
 class MockAudio {
@@ -131,7 +134,7 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('uses openlist resolver during half-progress preload', async () => {
-    subsonic.resolveOpenListStreamUrl.mockResolvedValue(
+    resolveOpenListStreamUrl.mockResolvedValue(
       'https://openlist/raw-song-2',
     )
 
@@ -146,7 +149,7 @@ describe('<Player /> OpenList preload', () => {
     })
 
     await waitFor(() => {
-      expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledWith(
+      expect(resolveOpenListStreamUrl).toHaveBeenCalledWith(
         'song-2',
         '/rest/stream?id=song-2',
       )
@@ -157,7 +160,7 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('reuses the same resolved url without duplicate resolve call', async () => {
-    subsonic.resolveOpenListStreamUrl.mockResolvedValue(
+    resolveOpenListStreamUrl.mockResolvedValue(
       'https://openlist/raw-song-2',
     )
 
@@ -175,16 +178,16 @@ describe('<Player /> OpenList preload', () => {
     })
 
     await waitFor(() => {
-      expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
+      expect(resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
     })
 
     const secondResolved = await nextTrackSrc()
     expect(secondResolved).toBe('https://openlist/raw-song-2')
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
+    expect(resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
   })
 
   it('does not retry openlist for the same track after fallback', async () => {
-    subsonic.resolveOpenListStreamUrl.mockRejectedValue(
+    resolveOpenListStreamUrl.mockRejectedValue(
       new Error('network down'),
     )
 
@@ -195,15 +198,15 @@ describe('<Player /> OpenList preload', () => {
 
     const firstResolved = await song2Src()
     expect(firstResolved).toBe('/rest/stream?id=song-2')
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
+    expect(resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
 
     const secondResolved = await song2Src()
     expect(secondResolved).toBe('/rest/stream?id=song-2')
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
+    expect(resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
   })
 
   it('still tries openlist for a different track after one fallback', async () => {
-    subsonic.resolveOpenListStreamUrl
+    resolveOpenListStreamUrl
       .mockRejectedValueOnce(new Error('song-2 down'))
       .mockResolvedValueOnce('https://openlist/raw-song-3')
 
@@ -211,8 +214,8 @@ describe('<Player /> OpenList preload', () => {
 
     const song2Src = latestPlayerProps.audioLists[1].musicSrc
     await song2Src()
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenNthCalledWith(
+    expect(resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
+    expect(resolveOpenListStreamUrl).toHaveBeenNthCalledWith(
       1,
       'song-2',
       '/rest/stream?id=song-2',
@@ -236,8 +239,8 @@ describe('<Player /> OpenList preload', () => {
     const song3Resolved = await song3Src()
 
     expect(song3Resolved).toBe('https://openlist/raw-song-3')
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledTimes(2)
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenNthCalledWith(
+    expect(resolveOpenListStreamUrl).toHaveBeenCalledTimes(2)
+    expect(resolveOpenListStreamUrl).toHaveBeenNthCalledWith(
       2,
       'song-3',
       '/rest/stream?id=song-3',
@@ -245,7 +248,7 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('keeps fallback decision for a track removed and re-added in the same session', async () => {
-    subsonic.resolveOpenListStreamUrl.mockRejectedValue(
+    resolveOpenListStreamUrl.mockRejectedValue(
       new Error('network down'),
     )
 
@@ -253,7 +256,7 @@ describe('<Player /> OpenList preload', () => {
 
     const song2Src = latestPlayerProps.audioLists[1].musicSrc
     await song2Src()
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
+    expect(resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
 
     mockState = {
       ...mockState,
@@ -280,6 +283,6 @@ describe('<Player /> OpenList preload', () => {
     } else {
       expect(readdedSong2Src).toBe('/rest/stream?id=song-2')
     }
-    expect(subsonic.resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
+    expect(resolveOpenListStreamUrl).toHaveBeenCalledTimes(1)
   })
 })

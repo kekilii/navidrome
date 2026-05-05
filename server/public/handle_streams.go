@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/navidrome/navidrome/core/auth"
-	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -23,16 +22,13 @@ func (pub *Router) handleStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-
-              // openlist
-	target, err := openlist.ResolveStreamRawURLBySongID(ctx, pub.ds, info.id)
+	target, err := pub.resolveOpenListSharedStreamTarget(ctx, info.id)
 	if err != nil {
 		log.Debug(ctx, "OpenList shared stream resolve failed", "id", info.id, err)
 	} else if target != "" {
 		http.Redirect(w, r, target, http.StatusFound)
 		return
 	}
-	// end
 
 	mf, err := pub.ds.MediaFile(ctx).Get(info.id)
 	if err != nil {

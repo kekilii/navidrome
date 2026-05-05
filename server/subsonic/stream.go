@@ -1,14 +1,12 @@
 package subsonic
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/navidrome/navidrome/conf"
-	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
@@ -28,7 +26,7 @@ func (api *Router) Stream(w http.ResponseWriter, r *http.Request) (*responses.Su
 	format, _ := p.String("format")
 	timeOffset := p.IntOr("timeOffset", 0)
 
-	target, err := api.resolveOpenListStream(ctx, id)
+	target, err := api.resolveOpenListStreamTarget(ctx, id)
 	if err == nil && target != "" {
 		http.Redirect(w, r, target, http.StatusFound)
 		return nil, nil
@@ -61,10 +59,6 @@ func (api *Router) Stream(w http.ResponseWriter, r *http.Request) (*responses.Su
 
 	_, err = stream.Serve(ctx, w, r)
 	return nil, err
-}
-
-func (api *Router) resolveOpenListStream(ctx context.Context, id string) (string, error) {
-	return openlist.ResolveStreamRawURLBySongID(ctx, api.ds, id)
 }
 
 func (api *Router) Download(w http.ResponseWriter, r *http.Request) (*responses.Subsonic, error) {

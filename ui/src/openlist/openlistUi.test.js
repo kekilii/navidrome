@@ -4,7 +4,18 @@ import { fileURLToPath } from 'node:url'
 import { describe, it, expect } from 'vitest'
 
 describe('OpenList UI wiring', () => {
-  it('registers openlist resource before transcoding in App', () => {
+  it('registers openlist resources from a dedicated helper module', () => {
+    const resourcePath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      'resource.js',
+    )
+    const source = fs.readFileSync(resourcePath, 'utf8')
+
+    expect(source).toContain('name="openlist"')
+    expect(source).toContain("options={{ subMenu: 'settings' }}")
+  })
+
+  it('registers openlist helper before transcoding in App', () => {
     const appPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
       '..',
@@ -12,7 +23,7 @@ describe('OpenList UI wiring', () => {
     )
     const source = fs.readFileSync(appPath, 'utf8')
 
-    const openListPos = source.indexOf('name="openlist"')
+    const openListPos = source.indexOf('renderOpenListResource')
     const transcodingPos = source.indexOf('name="transcoding"')
 
     expect(openListPos).toBeGreaterThan(-1)

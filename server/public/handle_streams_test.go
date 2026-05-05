@@ -250,3 +250,14 @@ func jsonResponse(payload any) *http.Response {
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 }
+
+var _ = Describe("OpenList shared stream resolver", func() {
+	It("returns empty target when openlist is disabled", func() {
+		router := &Router{}
+
+		target, err := router.resolveOpenListSharedStreamTarget(context.Background(), "song-1")
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(target).To(BeEmpty())
+	})
+})

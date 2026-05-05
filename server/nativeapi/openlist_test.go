@@ -261,6 +261,36 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
+var _ = Describe("OpenList bootstrap seam", func() {
+	It("exposes the OpenList route after shared bootstrap wiring", func() {
+		ds := &tests.MockDataStore{
+			MockedMediaFile: tests.CreateMockMediaFileRepo(),
+			MockedUser:      tests.CreateMockUserRepo(),
+			MockedProperty:  &tests.MockedPropertyRepo{},
+		}
+		auth.Init(ds)
+		router := server.JWTVerifier(New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil))
+
+		adminUser := model.User{
+			ID:          "admin-bootstrap",
+			UserName:    "admin-bootstrap",
+			Name:        "Admin Bootstrap",
+			IsAdmin:     true,
+			NewPassword: "adminpass",
+		}
+		Expect(ds.User(context.TODO()).Put(&adminUser)).To(Succeed())
+		token, err := auth.CreateToken(&adminUser)
+		Expect(err).ToNot(HaveOccurred())
+
+		req := httptest.NewRequest(http.MethodGet, "/openlist/openlist", nil)
+		req.Header.Set(consts.UIAuthorizationHeader, "Bearer "+token)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		Expect(w.Code).To(Equal(http.StatusOK))
+	})
+})
+
 func jsonResponse(payload any) *http.Response {
 	data, _ := json.Marshal(payload)
 	return &http.Response{

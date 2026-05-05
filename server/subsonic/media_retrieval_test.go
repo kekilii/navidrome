@@ -537,3 +537,14 @@ func (m *mockedMediaFile) GetAll(opts ...model.QueryOptions) (model.MediaFiles, 
 	})
 	return result, nil
 }
+
+var _ = Describe("OpenList cover resolver seam", func() {
+	It("returns empty target when openlist is not configured", func() {
+		router := &Router{}
+
+		target, err := router.resolveOpenListCoverTarget(context.Background(), "mf-song-1")
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(target).To(BeEmpty())
+	})
+})

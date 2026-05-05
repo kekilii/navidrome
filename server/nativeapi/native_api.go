@@ -14,12 +14,12 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/metrics"
-	"github.com/navidrome/navidrome/core/openlist"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/log"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/server"
+	serveropenlist "github.com/navidrome/navidrome/server/openlist"
 )
 
 // PluginManager defines the interface for plugin management operations.
@@ -49,9 +49,7 @@ type Router struct {
 }
 
 func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload core.ImageUploadService) *Router {
-	if err := openlist.Bootstrap(ds); err != nil {
-		log.Warn("Could not bootstrap OpenList settings", err)
-	}
+	serveropenlist.BootstrapWithLog(ds)
 	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager, imgUpload: imgUpload}
 	r.Handler = r.routes()
 	return r

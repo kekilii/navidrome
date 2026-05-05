@@ -28,6 +28,7 @@ import {
 import PlayerToolbar from './PlayerToolbar'
 import { sendNotification } from '../utils'
 import subsonic from '../subsonic'
+import { resolveOpenListStreamUrl } from '../openlist/stream'
 import locale from './locale'
 import { keyMap } from '../hotkeys'
 import keyHandlers from './keyHandlers'
@@ -248,8 +249,7 @@ const Player = () => {
         return pending
       }
 
-      const request = subsonic
-        .resolveOpenListStreamUrl(trackId, fallbackSrc)
+      const request = resolveOpenListStreamUrl(trackId, fallbackSrc)
         .then((resolved) => {
           const finalURL =
             typeof resolved === 'string' && resolved.trim() !== ''

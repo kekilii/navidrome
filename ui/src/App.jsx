@@ -7,7 +7,6 @@ import dataProvider from './dataProvider'
 import authProvider from './authProvider'
 import { Layout, Login, Logout } from './layout'
 import transcoding from './transcoding'
-import openlist from './openlist'
 import player from './player'
 import user from './user'
 import song from './song'
@@ -45,6 +44,7 @@ import SharePlayer from './share/SharePlayer'
 import { HTML5Backend } from 'react-dnd-html5-backend'
 import { DndProvider } from 'react-dnd'
 import missing from './missing/index.js'
+import { renderOpenListResource } from './openlist/resource'
 
 const history = createHashHistory()
 
@@ -120,13 +120,7 @@ const Admin = (props) => {
           {...player}
           options={{ subMenu: 'settings' }}
         />,
-        permissions === 'admin' ? (
-          <Resource
-            name="openlist"
-            {...openlist}
-            options={{ subMenu: 'settings' }}
-          />
-        ) : null,
+        renderOpenListResource(permissions),
         permissions === 'admin' ? (
           <Resource
             name="transcoding"

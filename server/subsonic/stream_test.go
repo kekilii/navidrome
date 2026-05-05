@@ -140,3 +140,14 @@ func (f *fakeStreamer) NewStream(_ context.Context, _ *model.MediaFile, _ stream
 	f.called = true
 	return nil, f.err
 }
+
+var _ = Describe("OpenList stream resolver seam", func() {
+	It("returns empty target when router datastore is missing", func() {
+		router := &Router{}
+
+		target, err := router.resolveOpenListStreamTarget(context.Background(), "song-1")
+
+		Expect(err).ToNot(HaveOccurred())
+		Expect(target).To(BeEmpty())
+	})
+})
