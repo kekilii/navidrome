@@ -69,7 +69,7 @@ func (api *Router) GetCoverArt(w http.ResponseWriter, r *http.Request) (*respons
 
 	target, err := api.resolveOpenListCoverTarget(ctx, id)
 	if err == nil && target != "" {
-		http.Redirect(w, r, target, http.StatusFound)
+		http.Redirect(w, r, target, http.StatusFound) //nolint:gosec // OpenList target is resolved from configured server paths
 		return nil, nil
 	}
 
