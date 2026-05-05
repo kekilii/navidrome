@@ -8,10 +8,6 @@ export const renderOpenListResource = (permissions) => {
   }
 
   return (
-    <Resource
-      name="openlist"
-      {...openlist}
-      options={{ subMenu: 'settings' }}
-    />
+    <Resource name="openlist" {...openlist} options={{ subMenu: 'settings' }} />
   )
 }

@@ -134,9 +134,7 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('uses openlist resolver during half-progress preload', async () => {
-    resolveOpenListStreamUrl.mockResolvedValue(
-      'https://openlist/raw-song-2',
-    )
+    resolveOpenListStreamUrl.mockResolvedValue('https://openlist/raw-song-2')
 
     render(<Player />)
 
@@ -160,9 +158,7 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('reuses the same resolved url without duplicate resolve call', async () => {
-    resolveOpenListStreamUrl.mockResolvedValue(
-      'https://openlist/raw-song-2',
-    )
+    resolveOpenListStreamUrl.mockResolvedValue('https://openlist/raw-song-2')
 
     render(<Player />)
 
@@ -187,9 +183,7 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('does not retry openlist for the same track after fallback', async () => {
-    resolveOpenListStreamUrl.mockRejectedValue(
-      new Error('network down'),
-    )
+    resolveOpenListStreamUrl.mockRejectedValue(new Error('network down'))
 
     render(<Player />)
 
@@ -248,9 +242,7 @@ describe('<Player /> OpenList preload', () => {
   })
 
   it('keeps fallback decision for a track removed and re-added in the same session', async () => {
-    resolveOpenListStreamUrl.mockRejectedValue(
-      new Error('network down'),
-    )
+    resolveOpenListStreamUrl.mockRejectedValue(new Error('network down'))
 
     const { rerender } = render(<Player />)
 
