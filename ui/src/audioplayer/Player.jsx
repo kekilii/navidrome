@@ -412,7 +412,7 @@ const Player = () => {
         audio.src = src
       })
     },
-    [playerState.queue, playerState.current, resolveTrackMusicSrc],
+    [playerState, resolveTrackMusicSrc],
   )
 
   const options = useMemo(() => {
