@@ -524,6 +524,34 @@ var _ = Describe("MediaRepository", func() {
 				}
 			})
 		})
+
+		Describe("path", func() {
+			It("matches files whose path starts with the given prefix", func() {
+				res, err := mr.(model.ResourceRepository).ReadAll(rest.QueryOptions{
+					Filters: map[string]any{"path": "test/"},
+				})
+				Expect(err).ToNot(HaveOccurred())
+				files := res.(model.MediaFiles)
+
+				var found bool
+				for _, f := range files {
+					Expect(f.Path).To(HavePrefix("test/"))
+					if f.ID == mfWithoutAnnotation.ID {
+						found = true
+					}
+				}
+				Expect(found).To(BeTrue(), "MediaFile with matching path prefix should be included")
+			})
+
+			It("excludes files whose path does not start with the given prefix", func() {
+				res, err := mr.(model.ResourceRepository).ReadAll(rest.QueryOptions{
+					Filters: map[string]any{"path": "no-such-prefix/"},
+				})
+				Expect(err).ToNot(HaveOccurred())
+				files := res.(model.MediaFiles)
+				Expect(files).To(BeEmpty())
+			})
+		})
 	})
 
 	Describe("Search", func() {
@@ -622,6 +650,49 @@ var _ = Describe("MediaRepository", func() {
 
 				// Clean up
 				_, _ = raw.executeSQL(squirrel.Delete(raw.tableName).Where(squirrel.Eq{"id": missingMediaFile.ID}))
+			})
+		})
+
+		Context("empty query (natural order pagination)", func() {
+			It("returns all non-missing files in natural order", func() {
+				results, err := mr.Search("", model.QueryOptions{Max: 1000})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(results).ToNot(BeEmpty())
+				for _, result := range results {
+					Expect(result.Missing).To(BeFalse())
+				}
+			})
+
+			It(`treats quoted empty query ("") the same as empty`, func() {
+				all, err := mr.Search("", model.QueryOptions{Max: 1000})
+				Expect(err).ToNot(HaveOccurred())
+				quoted, err := mr.Search(`""`, model.QueryOptions{Max: 1000})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(quoted).To(HaveLen(len(all)))
+			})
+
+			It("paginates without overlaps or gaps", func() {
+				all, err := mr.Search("", model.QueryOptions{Max: 1000})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(len(all)).To(BeNumerically(">", 3))
+
+				var paged model.MediaFiles
+				pageSize := 3
+				for offset := 0; offset < len(all); offset += pageSize {
+					page, err := mr.Search("", model.QueryOptions{Max: pageSize, Offset: offset})
+					Expect(err).ToNot(HaveOccurred())
+					paged = append(paged, page...)
+				}
+				Expect(paged).To(HaveLen(len(all)))
+				for i := range all {
+					Expect(paged[i].ID).To(Equal(all[i].ID), fmt.Sprintf("row %d differs", i))
+				}
+			})
+
+			It("returns empty page when offset is beyond the total", func() {
+				results, err := mr.Search("", model.QueryOptions{Max: 10, Offset: 100000})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(results).To(BeEmpty())
 			})
 		})
 	})
@@ -751,6 +822,51 @@ var _ = Describe("MediaRepository", func() {
 			}
 			Expect(mediafiles).To(HaveLen(1))
 			Expect(mediafiles[0].ID).To(Equal("mf1"))
+		})
+	})
+
+	Describe("BPM and BitDepth nullable round-trip", func() {
+		It("stores nil BPM and BitDepth as NULL and retrieves them as nil", func() {
+			newID := id.NewRandom()
+			mf := model.MediaFile{LibraryID: 1, ID: newID, Path: "test/bpm-nil.mp3"}
+			Expect(mr.Put(&mf)).To(Succeed())
+
+			retrieved, err := mr.Get(newID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrieved.BPM).To(BeNil())
+			Expect(retrieved.BitDepth).To(BeNil())
+
+			// Also verify via raw SQL that the columns are truly NULL (not 0)
+			db := GetDBXBuilder()
+			var row struct {
+				BPM      *int `db:"bpm"`
+				BitDepth *int `db:"bit_depth"`
+			}
+			err = db.NewQuery("SELECT bpm, bit_depth FROM media_file WHERE id={:id}").
+				Bind(dbx.Params{"id": newID}).
+				One(&row)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(row.BPM).To(BeNil(), "bpm should be stored as NULL in the database")
+			Expect(row.BitDepth).To(BeNil(), "bit_depth should be stored as NULL in the database")
+
+			_ = mr.Delete(newID)
+		})
+
+		It("stores non-nil BPM and BitDepth and retrieves correct values", func() {
+			newID := id.NewRandom()
+			bpm := 120
+			bitDepth := 24
+			mf := model.MediaFile{LibraryID: 1, ID: newID, Path: "test/bpm-set.mp3", BPM: &bpm, BitDepth: &bitDepth}
+			Expect(mr.Put(&mf)).To(Succeed())
+
+			retrieved, err := mr.Get(newID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(retrieved.BPM).ToNot(BeNil())
+			Expect(*retrieved.BPM).To(Equal(120))
+			Expect(retrieved.BitDepth).ToNot(BeNil())
+			Expect(*retrieved.BitDepth).To(Equal(24))
+
+			_ = mr.Delete(newID)
 		})
 	})
 })
