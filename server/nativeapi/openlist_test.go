@@ -33,6 +33,7 @@ var _ = Describe("OpenList API", func() {
 
 	BeforeEach(func() {
 		DeferCleanup(configtest.SetupConfig())
+		conf.Server.EnableSharing = false
 		conf.Server.DevUIShowConfig = true
 		for _, key := range []string{
 			"OPENLIST_BASE",
@@ -263,6 +264,8 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 
 var _ = Describe("OpenList bootstrap seam", func() {
 	It("exposes the OpenList route after shared bootstrap wiring", func() {
+		DeferCleanup(configtest.SetupConfig())
+		conf.Server.EnableSharing = false
 		ds := &tests.MockDataStore{
 			MockedMediaFile: tests.CreateMockMediaFileRepo(),
 			MockedUser:      tests.CreateMockUserRepo(),
