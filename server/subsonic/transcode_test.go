@@ -3,13 +3,16 @@ package subsonic
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 
 	"github.com/navidrome/navidrome/core/ffmpeg"
+	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/core/stream"
 	"github.com/navidrome/navidrome/model"
 	"github.com/navidrome/navidrome/model/request"
@@ -463,6 +466,71 @@ var _ = Describe("Transcode endpoints", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp).To(BeNil())
 			Expect(w.Code).To(Equal(http.StatusGone))
+		})
+
+		It("redirects a validated OpenList-backed request without invoking the local streamer", func() {
+			keys := []string{"OPENLIST_BASE", "OPENLIST_USER", "OPENLIST_PASS", "OPENLIST_ENABLED", "COVER_ENABLED", "STREAM_ENABLED"}
+			originalEnv := make(map[string]*string, len(keys))
+			for _, key := range keys {
+				if value, ok := os.LookupEnv(key); ok {
+					originalEnv[key] = &value
+				}
+				Expect(os.Unsetenv(key)).To(Succeed())
+			}
+			DeferCleanup(func() {
+				for _, key := range keys {
+					if value := originalEnv[key]; value != nil {
+						Expect(os.Setenv(key, *value)).To(Succeed())
+					} else {
+						Expect(os.Unsetenv(key)).To(Succeed())
+					}
+				}
+				Expect(openlist.Bootstrap(nil)).To(Succeed())
+			})
+			DeferCleanup(openlist.SetHTTPClientForTests(http.DefaultClient))
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/auth/login":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"code": 200,
+						"data": map[string]any{"token": "openlist-token"},
+					})
+				case "/api/fs/get":
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"code": 200,
+						"data": map[string]any{
+							"raw_url": "/d/Artist/Album/track.flac",
+							"is_dir":  false,
+						},
+					})
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			DeferCleanup(srv.Close)
+
+			mockMFRepo.SetData(model.MediaFiles{{
+				ID: "song-openlist", Path: "Artist/Album/track.flac", LibraryPath: "/music",
+			}})
+			Expect(openlist.Bootstrap(ds)).To(Succeed())
+			_, err := openlist.Update(ds, openlist.Config{
+				Enabled: true, OpenListBase: srv.URL, OpenListUser: "admin", OpenListPass: "secret",
+				CoverEnabled: true, StreamEnabled: true,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			fakeStreamer := &fakeMediaStreamer{}
+			router = New(ds, nil, fakeStreamer, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, mockTD, nil)
+			mockTD.resolvedReq = stream.Request{}
+			r := newGetRequest("mediaId=song-openlist", "mediaType=song", "transcodeParams=valid-token")
+
+			resp, err := router.GetTranscodeStream(w, r)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).To(BeNil())
+			Expect(fakeStreamer.captured).To(BeNil())
+			Expect(w.Code).To(Equal(http.StatusFound))
+			Expect(w.Header().Get("Location")).To(Equal(srv.URL + "/d/Artist/Album/track.flac"))
 		})
 
 		It("builds correct StreamRequest for direct play", func() {
