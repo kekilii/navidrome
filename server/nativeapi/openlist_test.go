@@ -85,12 +85,12 @@ var _ = Describe("OpenList API", func() {
 
 	It("allows admin to get openlist config", func() {
 		props.Data = map[string]string{
-			consts.OpenListEnabledKey:       "true",
-			consts.OpenListBaseKey:          "http://127.0.0.1:5244",
-			consts.OpenListUserKey:          "admin",
-			consts.OpenListPassKey:          "secret-pass",
-			consts.OpenListCoverEnabledKey:  "true",
-			consts.OpenListStreamEnabledKey: "false",
+			openlist.EnabledKey:       "true",
+			openlist.BaseKey:          "http://127.0.0.1:5244",
+			openlist.UserKey:          "admin",
+			openlist.PassKey:          "secret-pass",
+			openlist.CoverEnabledKey:  "true",
+			openlist.StreamEnabledKey: "false",
 		}
 		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil)
 		router = server.JWTVerifier(nativeRouter)
@@ -129,12 +129,12 @@ var _ = Describe("OpenList API", func() {
 
 	It("keeps existing password when put payload has empty password", func() {
 		props.Data = map[string]string{
-			consts.OpenListEnabledKey:       "true",
-			consts.OpenListBaseKey:          "http://openlist.local:5244",
-			consts.OpenListUserKey:          "existing-user",
-			consts.OpenListPassKey:          "existing-pass",
-			consts.OpenListCoverEnabledKey:  "true",
-			consts.OpenListStreamEnabledKey: "true",
+			openlist.EnabledKey:       "true",
+			openlist.BaseKey:          "http://openlist.local:5244",
+			openlist.UserKey:          "existing-user",
+			openlist.PassKey:          "existing-pass",
+			openlist.CoverEnabledKey:  "true",
+			openlist.StreamEnabledKey: "true",
 		}
 		nativeRouter := New(ds, nil, nil, nil, tests.NewMockLibraryService(), tests.NewMockUserService(), nil, nil, nil)
 		router = server.JWTVerifier(nativeRouter)
@@ -162,15 +162,15 @@ var _ = Describe("OpenList API", func() {
 		Expect(json.Unmarshal(w.Body.Bytes(), &payload)).To(Succeed())
 		Expect(payload.OpenListPass).To(Equal(""))
 
-		Expect(props.Data[consts.OpenListBaseKey]).To(Equal("http://openlist.updated:5244"))
-		Expect(props.Data[consts.OpenListUserKey]).To(Equal("updated-user"))
-		Expect(props.Data[consts.OpenListEnabledKey]).To(Equal("true"))
-		Expect(props.Data[consts.OpenListPassKey]).ToNot(Equal("existing-pass"))
-		decryptedPass, err := utils.Decrypt(context.Background(), openListEncKey(), props.Data[consts.OpenListPassKey])
+		Expect(props.Data[openlist.BaseKey]).To(Equal("http://openlist.updated:5244"))
+		Expect(props.Data[openlist.UserKey]).To(Equal("updated-user"))
+		Expect(props.Data[openlist.EnabledKey]).To(Equal("true"))
+		Expect(props.Data[openlist.PassKey]).ToNot(Equal("existing-pass"))
+		decryptedPass, err := utils.Decrypt(context.Background(), openListEncKey(), props.Data[openlist.PassKey])
 		Expect(err).ToNot(HaveOccurred())
 		Expect(decryptedPass).To(Equal("existing-pass"))
-		Expect(props.Data[consts.OpenListCoverEnabledKey]).To(Equal("false"))
-		Expect(props.Data[consts.OpenListStreamEnabledKey]).To(Equal("true"))
+		Expect(props.Data[openlist.CoverEnabledKey]).To(Equal("false"))
+		Expect(props.Data[openlist.StreamEnabledKey]).To(Equal("true"))
 	})
 
 	It("allows non-admin user to resolve stream raw url", func() {

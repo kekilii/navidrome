@@ -15,7 +15,15 @@ import (
 	"github.com/navidrome/navidrome/utils"
 )
 
-const RecordID = "openlist"
+const (
+	RecordID         = "openlist"
+	EnabledKey       = "OpenListEnabled"
+	BaseKey          = "OpenListBase"
+	UserKey          = "OpenListUser"
+	PassKey          = "OpenListPass"
+	CoverEnabledKey  = "OpenListCoverEnabled"
+	StreamEnabledKey = "OpenListStreamEnabled"
+)
 const defaultOpenListBase = "http://openlist:5244"
 
 type Config struct {
@@ -50,21 +58,21 @@ func Bootstrap(ds model.DataStore) error {
 		props := ds.Property(context.Background())
 		var err error
 
-		cfg.OpenListBase, err = props.DefaultGet(consts.OpenListBaseKey, cfg.OpenListBase)
+		cfg.OpenListBase, err = props.DefaultGet(BaseKey, cfg.OpenListBase)
 		if err != nil {
 			return err
 		}
-		cfg.OpenListUser, err = props.DefaultGet(consts.OpenListUserKey, cfg.OpenListUser)
+		cfg.OpenListUser, err = props.DefaultGet(UserKey, cfg.OpenListUser)
 		if err != nil {
 			return err
 		}
-		enabled, err := props.DefaultGet(consts.OpenListEnabledKey, boolToString(cfg.Enabled))
+		enabled, err := props.DefaultGet(EnabledKey, boolToString(cfg.Enabled))
 		if err != nil {
 			return err
 		}
 		cfg.Enabled = parseBool(enabled, cfg.Enabled)
 
-		storedPass, err := props.Get(consts.OpenListPassKey)
+		storedPass, err := props.Get(PassKey)
 		if err != nil && !errors.Is(err, model.ErrNotFound) {
 			return err
 		}
@@ -78,17 +86,17 @@ func Bootstrap(ds model.DataStore) error {
 				encryptedPass, encErr := encryptPassword(cfg.OpenListPass)
 				if encErr != nil {
 					log.Warn("Could not encrypt OpenList password", encErr)
-				} else if putErr := props.Put(consts.OpenListPassKey, encryptedPass); putErr != nil {
+				} else if putErr := props.Put(PassKey, encryptedPass); putErr != nil {
 					log.Warn("Could not persist encrypted OpenList password", putErr)
 				}
 			}
 		}
 
-		coverEnabled, err := props.DefaultGet(consts.OpenListCoverEnabledKey, boolToString(cfg.CoverEnabled))
+		coverEnabled, err := props.DefaultGet(CoverEnabledKey, boolToString(cfg.CoverEnabled))
 		if err != nil {
 			return err
 		}
-		streamEnabled, err := props.DefaultGet(consts.OpenListStreamEnabledKey, boolToString(cfg.StreamEnabled))
+		streamEnabled, err := props.DefaultGet(StreamEnabledKey, boolToString(cfg.StreamEnabled))
 		if err != nil {
 			return err
 		}
@@ -128,26 +136,26 @@ func Update(ds model.DataStore, input Config) (Config, error) {
 
 	if ds != nil {
 		props := ds.Property(context.Background())
-		if err := props.Put(consts.OpenListEnabledKey, boolToString(next.Enabled)); err != nil {
+		if err := props.Put(EnabledKey, boolToString(next.Enabled)); err != nil {
 			return cur, err
 		}
-		if err := props.Put(consts.OpenListBaseKey, next.OpenListBase); err != nil {
+		if err := props.Put(BaseKey, next.OpenListBase); err != nil {
 			return cur, err
 		}
-		if err := props.Put(consts.OpenListUserKey, next.OpenListUser); err != nil {
+		if err := props.Put(UserKey, next.OpenListUser); err != nil {
 			return cur, err
 		}
 		encryptedPass, err := encryptPassword(next.OpenListPass)
 		if err != nil {
 			return cur, err
 		}
-		if err := props.Put(consts.OpenListPassKey, encryptedPass); err != nil {
+		if err := props.Put(PassKey, encryptedPass); err != nil {
 			return cur, err
 		}
-		if err := props.Put(consts.OpenListCoverEnabledKey, boolToString(next.CoverEnabled)); err != nil {
+		if err := props.Put(CoverEnabledKey, boolToString(next.CoverEnabled)); err != nil {
 			return cur, err
 		}
-		if err := props.Put(consts.OpenListStreamEnabledKey, boolToString(next.StreamEnabled)); err != nil {
+		if err := props.Put(StreamEnabledKey, boolToString(next.StreamEnabled)); err != nil {
 			return cur, err
 		}
 	}
