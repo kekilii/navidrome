@@ -76,8 +76,10 @@ func NewFolder(lib Library, folderPath string) *Folder {
 type FolderCursor iter.Seq2[Folder, error]
 
 type FolderUpdateInfo struct {
-	UpdatedAt time.Time
-	Hash      string
+	UpdatedAt       time.Time
+	Hash            string
+	ImageFiles      []string
+	ImagesUpdatedAt time.Time
 }
 
 type FolderRepository interface {
@@ -93,4 +95,7 @@ type FolderRepository interface {
 	Put(*Folder) error
 	MarkMissing(missing bool, ids ...string) error
 	GetTouchedWithPlaylists() (FolderCursor, error)
+	// GetAllWithPlaylists returns all non-missing folders with playlists, ignoring
+	// the scan-timestamp gate used by GetTouchedWithPlaylists.
+	GetAllWithPlaylists() (FolderCursor, error)
 }

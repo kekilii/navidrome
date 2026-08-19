@@ -2,12 +2,22 @@ package subsonic
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
 	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/server/subsonic/filter"
+	"github.com/navidrome/navidrome/server/filter"
 )
+
+func (api *Router) tryRedirectOpenListCover(w http.ResponseWriter, r *http.Request, id string) bool {
+	target, err := api.resolveOpenListCoverTarget(r.Context(), id)
+	if err != nil || target == "" {
+		return false
+	}
+	http.Redirect(w, r, target, http.StatusFound) //nolint:gosec // OpenList target is resolved from configured server paths
+	return true
+}
 
 func (api *Router) resolveOpenListCoverTarget(ctx context.Context, id string) (string, error) {
 	if api == nil || api.ds == nil {

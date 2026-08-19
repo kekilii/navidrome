@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/gohugoio/hashstructure"
 	"github.com/navidrome/navidrome/model"
 )
 
@@ -33,18 +34,27 @@ type ExternalImage struct {
 }
 
 type Song struct {
-	ID         string
-	Name       string
-	MBID       string
-	ISRC       string
-	Artist     string
-	ArtistMBID string
-	Album      string
-	AlbumMBID  string
-	Duration   uint32 // Duration in milliseconds, 0 means unknown
+	ID        string
+	Name      string
+	MBID      string
+	ISRC      string
+	Artists   []Artist
+	Album     string
+	AlbumMBID string
+	Duration  uint32 // Duration in milliseconds, 0 means unknown
+}
+
+// Equals reports strict whole-value equality, used to dedup identical input songs. It hashes
+// rather than comparing with ==, which the Artists slice makes illegal.
+func (s Song) Equals(other Song) bool {
+	h1, _ := hashstructure.Hash(s, nil)
+	h2, _ := hashstructure.Hash(other, nil)
+	return h1 == h2
 }
 
 var (
+	// ErrNotFound means the provider answered and had nothing. Return the underlying error
+	// for a fault instead, or callers that back off on faults will treat it as definitive.
 	ErrNotFound = errors.New("not found")
 )
 

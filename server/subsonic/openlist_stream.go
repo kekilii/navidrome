@@ -1,14 +1,19 @@
 package subsonic
 
 import (
-	"context"
+	"net/http"
 
 	"github.com/navidrome/navidrome/core/openlist"
 )
 
-func (api *Router) resolveOpenListStreamTarget(ctx context.Context, id string) (string, error) {
+func (api *Router) tryRedirectOpenListStream(w http.ResponseWriter, r *http.Request, id string) bool {
 	if api == nil || api.ds == nil {
-		return "", nil
+		return false
 	}
-	return openlist.ResolveStreamRawURLBySongID(ctx, api.ds, id)
+	target, err := openlist.ResolveStreamRawURLBySongID(r.Context(), api.ds, id)
+	if err != nil || target == "" {
+		return false
+	}
+	http.Redirect(w, r, target, http.StatusFound) //nolint:gosec // OpenList target is resolved from configured server paths
+	return true
 }

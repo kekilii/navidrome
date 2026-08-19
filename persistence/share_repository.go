@@ -82,13 +82,20 @@ func (r *shareRepository) loadMedia(share *model.Share) error {
 	}
 	switch share.ResourceType {
 	case "artist":
-		albumRepo := NewAlbumRepository(r.ctx, r.db)
-		share.Albums, err = albumRepo.GetAll(model.QueryOptions{Filters: noMissing(Eq{"album_artist_id": ids}), Sort: "artist"})
+		// Match by album-artist participation, not the deprecated album_artist_id
+		// column (first album artist only), so co-album-artists are included too.
+		// Load as the share owner so their library access is applied.
+		ctx, err := r.ownerContext(share)
 		if err != nil {
 			return err
 		}
-		mfRepo := NewMediaFileRepository(r.ctx, r.db)
-		share.Tracks, err = mfRepo.GetAll(model.QueryOptions{Filters: noMissing(Eq{"album_artist_id": ids}), Sort: "artist"})
+		albumRepo := NewAlbumRepository(ctx, r.db)
+		share.Albums, err = albumRepo.GetAll(model.QueryOptions{Filters: noMissing(ParticipantIDFilter("album", ids, model.RoleAlbumArtist)), Sort: "artist"})
+		if err != nil {
+			return err
+		}
+		mfRepo := NewMediaFileRepository(ctx, r.db)
+		share.Tracks, err = mfRepo.GetAll(model.QueryOptions{Filters: noMissing(ParticipantIDFilter("media_file", ids, model.RoleAlbumArtist)), Sort: "artist"})
 		return err
 	case "album":
 		albumRepo := NewAlbumRepository(r.ctx, r.db)
@@ -100,16 +107,24 @@ func (r *shareRepository) loadMedia(share *model.Share) error {
 		share.Tracks, err = mfRepo.GetAll(model.QueryOptions{Filters: noMissing(Eq{"album_id": ids}), Sort: "album"})
 		return err
 	case "playlist":
-		// Create a context with a fake admin user, to be able to access all playlists
-		ctx := request.WithUser(r.ctx, model.User{IsAdmin: true})
-		plsRepo := NewPlaylistRepository(ctx, r.db)
-		tracks, err := plsRepo.Tracks(ids[0], true).GetAll(model.QueryOptions{Sort: "id", Filters: noMissing(Eq{})})
+		// Load tracks as the share owner so their library access is applied.
+		ctx, err := r.ownerContext(share)
 		if err != nil {
 			return err
 		}
-		if len(tracks) >= 0 {
-			share.Tracks = tracks.MediaFiles()
+		plsRepo := NewPlaylistRepository(ctx, r.db)
+		// Tracks returns nil when the playlist is no longer visible to the owner
+		// (e.g. it was made private after the share was created); leave the share
+		// with no tracks rather than exposing it.
+		trackRepo := plsRepo.Tracks(ids[0], true)
+		if trackRepo == nil {
+			return nil
 		}
+		tracks, err := trackRepo.GetAll(model.QueryOptions{Sort: "id", Filters: noMissing(Eq{})})
+		if err != nil {
+			return err
+		}
+		share.Tracks = tracks.MediaFiles()
 		return nil
 	case "media_file":
 		mfRepo := NewMediaFileRepository(r.ctx, r.db)
@@ -119,6 +134,19 @@ func (r *shareRepository) loadMedia(share *model.Share) error {
 	}
 	log.Warn(r.ctx, "Unsupported Share ResourceType", "share", share.ID, "resourceType", share.ResourceType)
 	return nil
+}
+
+// ownerContext returns a context scoped to the share owner, so repository
+// queries apply the owner's library access when a public share is rendered.
+func (r *shareRepository) ownerContext(share *model.Share) (context.Context, error) {
+	owner, err := NewUserRepository(r.ctx, r.db).Get(share.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("loading share owner %q: %w", share.UserID, err)
+	}
+	if owner == nil {
+		return nil, fmt.Errorf("share owner %q not found", share.UserID)
+	}
+	return request.WithUser(r.ctx, *owner), nil
 }
 
 func sortByIdPosition(mfs model.MediaFiles, ids []string) model.MediaFiles {
