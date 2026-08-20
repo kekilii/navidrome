@@ -215,15 +215,14 @@ func (api *Router) scrobblerNowPlaying(ctx context.Context, trackId string, posi
 		return fmt.Errorf(`ID "%s" not found`, trackId)
 	}
 
+	logNowPlaying(ctx, mf, position)
 	player, _ := request.PlayerFrom(ctx)
-	username, _ := request.UsernameFrom(ctx)
 	client, _ := request.ClientFrom(ctx)
 	clientId, ok := request.ClientUniqueIdFrom(ctx)
 	if !ok {
 		clientId = player.ID
 	}
 
-	log.Info(ctx, "Now Playing", "title", mf.Title, "artist", mf.Artist, "user", username, "player", player.Name, "position", position)
 	return api.scrobbler.ReportPlayback(ctx, scrobbler.ReportPlaybackParams{
 		MediaId:      trackId,
 		PositionMs:   int64(position) * 1000,
@@ -232,6 +231,12 @@ func (api *Router) scrobblerNowPlaying(ctx context.Context, trackId string, posi
 		ClientId:     clientId,
 		ClientName:   client,
 	})
+}
+
+func logNowPlaying(ctx context.Context, mf *model.MediaFile, position int) {
+	player, _ := request.PlayerFrom(ctx)
+	username, _ := request.UsernameFrom(ctx)
+	log.Info(ctx, "Now Playing", "title", mf.Title, "artist", mf.Artist, "user", username, "player", player.Name, "position", position)
 }
 
 func (api *Router) ReportPlayback(r *http.Request) (*responses.Subsonic, error) {
