@@ -153,6 +153,7 @@ func (t Tags) Add(name TagName, v string) {
 type TagRepository interface {
 	Add(libraryID int, tags ...Tag) error
 	UpdateCounts() error
+	GetAll(name TagName, options ...QueryOptions) (TagList, error)
 }
 
 type TagName string
@@ -192,6 +193,10 @@ const (
 	TagISRC           TagName = "isrc"
 	TagBPM            TagName = "bpm"
 	TagExplicitStatus TagName = "explicitstatus"
+	TagWork           TagName = "work"
+	TagMovementName   TagName = "movementname"
+	TagMovementNumber TagName = "movement"
+	TagMovementTotal  TagName = "movementtotal"
 
 	// Dates and years
 
@@ -240,6 +245,7 @@ const (
 	TagMusicBrainzAlbumArtistID  TagName = "musicbrainz_albumartistid"
 	TagMusicBrainzAlbumID        TagName = "musicbrainz_albumid"
 	TagMusicBrainzReleaseGroupID TagName = "musicbrainz_releasegroupid"
+	TagMusicBrainzWorkID         TagName = "musicbrainz_workid"
 
 	TagMusicBrainzComposerID  TagName = "musicbrainz_composerid"
 	TagMusicBrainzLyricistID  TagName = "musicbrainz_lyricistid"

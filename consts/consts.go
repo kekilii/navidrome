@@ -14,24 +14,34 @@ const (
 	DefaultDbPath                 = "navidrome.db?cache=shared&_busy_timeout=15000&_journal_mode=WAL&_foreign_keys=on&synchronous=normal"
 	InitialSetupFlagKey           = "InitialSetup"
 	FullScanAfterMigrationFlagKey = "FullScanAfterMigration"
+	// PlaylistsImportPendingFlagKey marks that playlist import was deferred because
+	// no admin user existed yet; the next scan with an admin imports them.
+	PlaylistsImportPendingFlagKey = "PlaylistsImportPending"
 	LastScanErrorKey              = "LastScanError"
 	LastScanTypeKey               = "LastScanType"
 	LastScanStartTimeKey          = "LastScanStartTime"
-	OpenListEnabledKey            = "OpenListEnabled"
-	OpenListBaseKey               = "OpenListBase"
-	OpenListUserKey               = "OpenListUser"
-	OpenListPassKey               = "OpenListPass"
-	OpenListCoverEnabledKey       = "OpenListCoverEnabled"
-	OpenListStreamEnabledKey      = "OpenListStreamEnabled"
+	LastDBAnalyzeAtKey            = "LastDBAnalyzeAt"
+	LastDBAnalyzeAttemptAtKey     = "LastDBAnalyzeAttemptAt"
+	DBAnalyzePendingKey           = "DBAnalyzePending"
+	DBAnalyzeFailureCountKey      = "DBAnalyzeFailureCount"
+	// ArtConfFingerprintPropertyKey is the model.PropertyRepository key Backfill compares against
+	// to detect artwork-affecting config changes across restarts.
+	ArtConfFingerprintPropertyKey = "ArtConfFingerprint"
 
 	UIAuthorizationHeader  = "X-ND-Authorization"
 	UIClientUniqueIDHeader = "X-ND-Client-Unique-Id"
 	JWTSecretKey           = "JWTSecret"
+	JWTPublicSecretKey     = "JWTPublicSecret"
 	JWTIssuer              = "ND"
 	DefaultSessionTimeout  = 48 * time.Hour
 	CookieExpiry           = 365 * 24 * 3600 // One year
 
-	OptimizeDBSchedule = "@every 24h"
+	DBAnalyzeCheckSchedule = "@every 30m"
+	DBAnalyzeMaxAge        = 24 * time.Hour
+
+	ArtworkStaleAbsentRecheckSchedule = "@every 1h"
+	ArtworkPruneSchedule              = "@daily"
+	ArtworkPostBackfillPruneDelay     = 10 * time.Minute
 
 	// DefaultEncryptionKey This is the encryption key used if none is specified in the `PasswordEncryptionKey` option
 	// Never ever change this! Or it will break all Navidrome installations that don't set the config option
@@ -47,6 +57,11 @@ const (
 	URLPathSubsonicAPI  = "/rest"
 	URLPathPublic       = "/share"
 	URLPathPublicImages = URLPathPublic + "/img"
+	URLPathJellyfinAPI  = "/jellyfin"
+
+	// JellyfinServerIDKey is the Property key for the stable, persisted server Id reported by the
+	// Jellyfin API. Jellyfin clients cache this value, so it must survive process restarts.
+	JellyfinServerIDKey = "JellyfinServerID"
 
 	// DefaultUILoginBackgroundURL uses Navidrome curated background images collection,
 	// available at https://unsplash.com/collections/20072696/navidrome
@@ -72,6 +87,9 @@ const (
 	I18nFolder     = "i18n"
 	ScanIgnoreFile = ".ndignore"
 	ArtworkFolder  = "artwork"
+	// HashedArtworkFolder is a subtree of ArtworkFolder, kept apart from the name-addressed
+	// upload folders beside it so Prune's sweep never reaches them.
+	HashedArtworkFolder = "hashed"
 
 	PlaceholderArtistArt            = "artist-placeholder.webp"
 	PlaceholderAlbumArt             = "album-placeholder.webp"
@@ -94,6 +112,7 @@ const (
 const (
 	DefaultUICoverArtSize     = 300
 	DefaultMaxImageUploadSize = "10MB"
+	DefaultMaxImageSize       = "20MB"
 )
 
 // Prometheus options
@@ -159,25 +178,25 @@ var (
 			Name:           "mp3 audio",
 			TargetFormat:   "mp3",
 			DefaultBitRate: 192,
-			Command:        "ffmpeg -ss %t -i %s -map 0:a:0 -b:a %bk -v 0 -f mp3 -",
+			Command:        "ffmpeg -ss %t -i %s -map 0:a:0 -map_metadata 0 -map_metadata 0:s:a:0 -b:a %bk -v 0 -f mp3 -",
 		},
 		{
 			Name:           "opus audio",
 			TargetFormat:   "opus",
 			DefaultBitRate: 128,
-			Command:        "ffmpeg -ss %t -i %s -map 0:a:0 -b:a %bk -v 0 -c:a libopus -f opus -",
+			Command:        "ffmpeg -ss %t -i %s -map 0:a:0 -map_metadata 0 -map_metadata 0:s:a:0 -b:a %bk -v 0 -c:a libopus -f opus -",
 		},
 		{
 			Name:           "aac audio",
 			TargetFormat:   "aac",
 			DefaultBitRate: 256,
-			Command:        "ffmpeg -ss %t -i %s -map 0:a:0 -b:a %bk -v 0 -c:a aac -f adts -",
+			Command:        "ffmpeg -ss %t -i %s -map 0:a:0 -map_metadata 0 -map_metadata 0:s:a:0 -b:a %bk -v 0 -c:a aac -f adts -",
 		},
 		{
 			Name:           "flac audio",
 			TargetFormat:   "flac",
 			DefaultBitRate: 0,
-			Command:        "ffmpeg -ss %t -i %s -map 0:a:0 -v 0 -c:a flac -f flac -",
+			Command:        "ffmpeg -ss %t -i %s -map 0:a:0 -map_metadata 0 -map_metadata 0:s:a:0 -v 0 -c:a flac -f flac -",
 		},
 	}
 )

@@ -28,9 +28,7 @@ func (api *Router) Stream(w http.ResponseWriter, r *http.Request) (*responses.Su
 	format, _ := p.String("format")
 	timeOffset := p.IntOr("timeOffset", 0)
 
-	target, err := api.resolveOpenListStreamTarget(ctx, id)
-	if err == nil && target != "" {
-		http.Redirect(w, r, target, http.StatusFound) //nolint:gosec // OpenList target is resolved from configured server paths
+	if api.tryRedirectOpenListStream(w, r, id) {
 		return nil, nil
 	}
 

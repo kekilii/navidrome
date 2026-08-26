@@ -36,7 +36,7 @@ func (m *mockStreamer) NewStream(_ context.Context, _ *model.MediaFile, r stream
 
 var _ = Describe("decodeStreamInfo", func() {
 	BeforeEach(func() {
-		auth.TokenAuth = jwtauth.New("HS256", []byte("test-secret"), nil)
+		auth.PublicTokenAuth = jwtauth.New("HS256", []byte("test-secret"), nil)
 	})
 
 	It("decodes a valid token with all fields", func() {
@@ -78,20 +78,17 @@ var _ = Describe("decodeStreamInfo", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
-	It("handles tokens without shareID (backward compat)", func() {
+	It("rejects a token without a shareID claim", func() {
 		claims := auth.Claims{ID: "mf-123", Format: "opus"}
 		token, _ := auth.CreatePublicToken(claims)
-		info, err := decodeStreamInfo(token)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(info.id).To(Equal("mf-123"))
-		Expect(info.format).To(Equal("opus"))
-		Expect(info.shareID).To(BeEmpty())
+		_, err := decodeStreamInfo(token)
+		Expect(err).To(HaveOccurred())
 	})
 })
 
 var _ = Describe("encodeMediafileShare", func() {
 	BeforeEach(func() {
-		auth.TokenAuth = jwtauth.New("HS256", []byte("test-secret"), nil)
+		auth.PublicTokenAuth = jwtauth.New("HS256", []byte("test-secret"), nil)
 	})
 
 	It("includes the share ID in the token", func() {
@@ -123,7 +120,7 @@ var _ = Describe("handleStream", func() {
 	var pub *Router
 
 	BeforeEach(func() {
-		auth.TokenAuth = jwtauth.New("HS256", []byte("test-secret"), nil)
+		auth.PublicTokenAuth = jwtauth.New("HS256", []byte("test-secret"), nil)
 		ds = &tests.MockDataStore{}
 		shareRepo = &tests.MockShareRepo{}
 		ds.MockedShare = shareRepo
@@ -138,11 +135,22 @@ var _ = Describe("handleStream", func() {
 		return w
 	}
 
-	It("passes all validation and reaches the streamer for a valid token", func() {
+	shareOwnedBy := func(owner model.User, mf model.MediaFile) {
 		shareRepo.ID = "share123"
+		shareRepo.Entity = &model.Share{ID: "share123", UserID: owner.ID, Tracks: model.MediaFiles{mf}}
+		userRepo := tests.CreateMockUserRepo()
+		Expect(userRepo.Put(&owner)).To(Succeed())
+		ds.MockedUser = userRepo
 		mfRepo := tests.CreateMockMediaFileRepo()
-		mfRepo.SetData(model.MediaFiles{{ID: "mf-123", Title: "Test Song"}})
+		mfRepo.SetData(model.MediaFiles{mf})
 		ds.MockedMediaFile = mfRepo
+	}
+
+	It("passes all validation and reaches the streamer for a valid token", func() {
+		shareOwnedBy(
+			model.User{ID: "owner1", UserName: "owner1", IsAdmin: true},
+			model.MediaFile{ID: "mf-123", Title: "Test Song"},
+		)
 
 		claims := auth.Claims{ID: "mf-123", Format: "mp3", BitRate: 192, ShareID: "share123"}
 		token, _ := auth.CreateExpiringPublicToken(time.Now().Add(time.Hour), claims)
@@ -151,6 +159,52 @@ var _ = Describe("handleStream", func() {
 		Expect(streamer.called).To(BeTrue())
 		Expect(streamer.req.Format).To(Equal("mp3"))
 		Expect(streamer.req.BitRate).To(Equal(192))
+	})
+
+	It("returns 404 when the track is outside the share owner's libraries", func() {
+		shareOwnedBy(
+			model.User{ID: "owner1", UserName: "owner1", Libraries: model.Libraries{{ID: 1}}},
+			model.MediaFile{ID: "mf-restricted", Title: "Other Lib Track", LibraryID: 2},
+		)
+
+		claims := auth.Claims{ID: "mf-restricted", ShareID: "share123"}
+		token, _ := auth.CreateExpiringPublicToken(time.Now().Add(time.Hour), claims)
+		w := makeRequest(token)
+
+		Expect(w.Code).To(Equal(http.StatusNotFound))
+		Expect(streamer.called).To(BeFalse())
+	})
+
+	It("returns 404 when the track is not a member of the share", func() {
+		owner := model.User{ID: "owner1", UserName: "owner1", IsAdmin: true}
+		userRepo := tests.CreateMockUserRepo()
+		Expect(userRepo.Put(&owner)).To(Succeed())
+		ds.MockedUser = userRepo
+		mfRepo := tests.CreateMockMediaFileRepo()
+		mfRepo.SetData(model.MediaFiles{{ID: "mf-shared"}, {ID: "mf-other"}})
+		ds.MockedMediaFile = mfRepo
+		shareRepo.ID = "share123"
+		shareRepo.Entity = &model.Share{ID: "share123", UserID: owner.ID, Tracks: model.MediaFiles{{ID: "mf-shared"}}}
+
+		claims := auth.Claims{ID: "mf-other", ShareID: "share123"}
+		token, _ := auth.CreateExpiringPublicToken(time.Now().Add(time.Hour), claims)
+		w := makeRequest(token)
+
+		Expect(w.Code).To(Equal(http.StatusNotFound))
+		Expect(streamer.called).To(BeFalse())
+	})
+
+	It("streams a track inside the share owner's libraries", func() {
+		shareOwnedBy(
+			model.User{ID: "owner1", UserName: "owner1", Libraries: model.Libraries{{ID: 1}}},
+			model.MediaFile{ID: "mf-ok", Title: "OK", LibraryID: 1},
+		)
+
+		claims := auth.Claims{ID: "mf-ok", Format: "mp3", ShareID: "share123"}
+		token, _ := auth.CreateExpiringPublicToken(time.Now().Add(time.Hour), claims)
+		makeRequest(token)
+
+		Expect(streamer.called).To(BeTrue())
 	})
 
 	It("returns 400 for an expired token", func() {
@@ -186,11 +240,12 @@ var _ = Describe("handleStream", func() {
 		Expect(w.Code).To(Equal(http.StatusInternalServerError))
 	})
 
-	It("skips share check for tokens without shareID (backward compat)", func() {
+	It("returns 400 for tokens without a shareID", func() {
 		claims := auth.Claims{ID: "mf-123"}
 		token, _ := auth.CreatePublicToken(claims)
 		w := makeRequest(token)
-		Expect(w.Code).To(Equal(http.StatusNotFound))
+		Expect(w.Code).To(Equal(http.StatusBadRequest))
+		Expect(streamer.called).To(BeFalse())
 	})
 
 	It("returns 400 for an invalid token", func() {
@@ -202,20 +257,36 @@ var _ = Describe("handleStream", func() {
 var _ = Describe("handleStream OpenList", func() {
 	var ds *tests.MockDataStore
 	var mediaRepo *tests.MockMediaFileRepo
+	var shareRepo *tests.MockShareRepo
 	var streamToken string
 	var libraryRoot string
 
 	BeforeEach(func() {
-		for _, key := range []string{
+		keys := []string{
 			"OPENLIST_BASE",
 			"OPENLIST_USER",
 			"OPENLIST_PASS",
 			"OPENLIST_ENABLED",
 			"COVER_ENABLED",
 			"STREAM_ENABLED",
-		} {
+		}
+		originalEnv := make(map[string]*string, len(keys))
+		for _, key := range keys {
+			if value, ok := os.LookupEnv(key); ok {
+				originalEnv[key] = &value
+			}
 			Expect(os.Unsetenv(key)).To(Succeed())
 		}
+		DeferCleanup(func() {
+			for _, key := range keys {
+				if value := originalEnv[key]; value != nil {
+					Expect(os.Setenv(key, *value)).To(Succeed())
+				} else {
+					Expect(os.Unsetenv(key)).To(Succeed())
+				}
+			}
+			Expect(openlist.Bootstrap(nil)).To(Succeed())
+		})
 
 		libraryRoot = GinkgoT().TempDir()
 		trackPath := filepath.Join(libraryRoot, "Artist", "Album", "track.flac")
@@ -235,14 +306,29 @@ var _ = Describe("handleStream OpenList", func() {
 				LibraryPath: libraryRoot,
 			},
 		})
-		ds = &tests.MockDataStore{MockedMediaFile: mediaRepo}
+		shareRepo = &tests.MockShareRepo{
+			ID: "share-1",
+			Entity: &model.Share{
+				ID:     "share-1",
+				UserID: "owner-1",
+				Tracks: model.MediaFiles{*mediaRepo.Data["song-1"]},
+			},
+		}
+		userRepo := tests.CreateMockUserRepo()
+		Expect(userRepo.Put(&model.User{ID: "owner-1", UserName: "owner-1", IsAdmin: true})).To(Succeed())
+		ds = &tests.MockDataStore{
+			MockedMediaFile: mediaRepo,
+			MockedShare:     shareRepo,
+			MockedUser:      userRepo,
+		}
 		Expect(openlist.Bootstrap(ds)).To(Succeed())
 
-		auth.TokenAuth = jwtauth.New("HS256", []byte("public-secret"), nil)
+		auth.PublicTokenAuth = jwtauth.New("HS256", []byte("public-secret"), nil)
 		var err error
 		streamToken, err = auth.CreatePublicToken(auth.Claims{
-			ID:     "song-1",
-			Format: "raw",
+			ID:      "song-1",
+			Format:  "raw",
+			ShareID: "share-1",
 		})
 		Expect(err).ToNot(HaveOccurred())
 	})
@@ -387,6 +473,175 @@ var _ = Describe("handleStream OpenList", func() {
 		Expect(w.Code).To(Equal(http.StatusInternalServerError))
 		Expect(streamer.called).To(BeTrue())
 	})
+
+	It("does not contact OpenList for invalid share or media requests", func() {
+		requestCount := 0
+		restoreClient := openlist.SetHTTPClientForTests(&http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requestCount++
+				return jsonResponse(map[string]any{"code": 200}), nil
+			}),
+		})
+		DeferCleanup(restoreClient)
+
+		_, err := openlist.Update(ds, openlist.Config{
+			Enabled:       true,
+			OpenListBase:  "http://openlist.local",
+			OpenListUser:  "admin",
+			OpenListPass:  "secret",
+			CoverEnabled:  true,
+			StreamEnabled: true,
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		track := *mediaRepo.Data["song-1"]
+		resetAuthorizedShare := func() {
+			mediaRepo.SetData(model.MediaFiles{track})
+			shareRepo.ID = "share-1"
+			shareRepo.Entity = &model.Share{
+				ID:     "share-1",
+				UserID: "owner-1",
+				Tracks: model.MediaFiles{track},
+			}
+		}
+		newToken := func() string {
+			token, err := auth.CreatePublicToken(auth.Claims{
+				ID:      "song-1",
+				Format:  "raw",
+				ShareID: "share-1",
+			})
+			Expect(err).ToNot(HaveOccurred())
+			return token
+		}
+
+		cases := []struct {
+			name    string
+			prepare func() string
+			status  int
+		}{
+			{
+				name: "invalid token",
+				prepare: func() string {
+					return "not-a-valid-token"
+				},
+				status: http.StatusBadRequest,
+			},
+			{
+				name: "deleted share",
+				prepare: func() string {
+					shareRepo.ID = "deleted-share"
+					return newToken()
+				},
+				status: http.StatusNotFound,
+			},
+			{
+				name: "expired share",
+				prepare: func() string {
+					expiresAt := time.Now().Add(-time.Hour)
+					shareRepo.Entity.(*model.Share).ExpiresAt = &expiresAt
+					return newToken()
+				},
+				status: http.StatusGone,
+			},
+			{
+				name: "missing media file",
+				prepare: func() string {
+					mediaRepo.SetData(nil)
+					return newToken()
+				},
+				status: http.StatusNotFound,
+			},
+		}
+
+		for _, tc := range cases {
+			resetAuthorizedShare()
+			By(tc.name)
+
+			streamer := &countingStreamer{err: errors.New("streamer should not be called")}
+			router := &Router{ds: ds, streamer: streamer}
+			w := httptest.NewRecorder()
+
+			router.handleStream(w, newPublicStreamRequest(tc.prepare()))
+
+			Expect(w.Code).To(Equal(tc.status))
+			Expect(w.Header().Get("Location")).To(BeEmpty())
+			Expect(requestCount).To(BeZero())
+			Expect(streamer.called).To(BeFalse())
+		}
+	})
+
+	It("does not resolve OpenList for a share owner without library access", func() {
+		requestCount := 0
+		restoreClient := openlist.SetHTTPClientForTests(&http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requestCount++
+				return jsonResponse(map[string]any{"code": 200}), nil
+			}),
+		})
+		DeferCleanup(restoreClient)
+
+		_, err := openlist.Update(ds, openlist.Config{
+			Enabled:       true,
+			OpenListBase:  "http://openlist.local",
+			OpenListUser:  "admin",
+			OpenListPass:  "secret",
+			CoverEnabled:  true,
+			StreamEnabled: true,
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		owner := model.User{ID: "owner-1", UserName: "owner-1", Libraries: model.Libraries{{ID: 2}}}
+		userRepo := tests.CreateMockUserRepo()
+		Expect(userRepo.Put(&owner)).To(Succeed())
+		ds.MockedUser = userRepo
+
+		streamer := &countingStreamer{err: errors.New("streamer should not be called")}
+		router := &Router{ds: ds, streamer: streamer}
+		w := httptest.NewRecorder()
+		r := newPublicStreamRequest(streamToken)
+
+		router.handleStream(w, r)
+
+		Expect(w.Code).To(Equal(http.StatusNotFound))
+		Expect(w.Header().Get("Location")).To(BeEmpty())
+		Expect(requestCount).To(BeZero())
+		Expect(streamer.called).To(BeFalse())
+	})
+
+	It("does not resolve OpenList when the share does not contain the requested song", func() {
+		requestCount := 0
+		restoreClient := openlist.SetHTTPClientForTests(&http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requestCount++
+				return jsonResponse(map[string]any{"code": 200}), nil
+			}),
+		})
+		DeferCleanup(restoreClient)
+
+		_, err := openlist.Update(ds, openlist.Config{
+			Enabled:       true,
+			OpenListBase:  "http://openlist.local",
+			OpenListUser:  "admin",
+			OpenListPass:  "secret",
+			CoverEnabled:  true,
+			StreamEnabled: true,
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		shareRepo.Entity.(*model.Share).Tracks = model.MediaFiles{{ID: "other-song"}}
+
+		streamer := &countingStreamer{err: errors.New("streamer should not be called")}
+		router := &Router{ds: ds, streamer: streamer}
+		w := httptest.NewRecorder()
+		r := newPublicStreamRequest(streamToken)
+
+		router.handleStream(w, r)
+
+		Expect(w.Code).To(Equal(http.StatusNotFound))
+		Expect(w.Header().Get("Location")).To(BeEmpty())
+		Expect(requestCount).To(BeZero())
+		Expect(streamer.called).To(BeFalse())
+	})
 })
 
 func newPublicStreamRequest(token string) *http.Request {
@@ -426,14 +681,3 @@ func jsonResponse(payload any) *http.Response {
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 }
-
-var _ = Describe("OpenList shared stream resolver", func() {
-	It("returns empty target when openlist is disabled", func() {
-		router := &Router{}
-
-		target, err := router.resolveOpenListSharedStreamTarget(context.Background(), "song-1")
-
-		Expect(err).ToNot(HaveOccurred())
-		Expect(target).To(BeEmpty())
-	})
-})

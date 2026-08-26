@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 	"github.com/navidrome/navidrome/core/lyrics"
 	"github.com/navidrome/navidrome/core/openlist"
 	"github.com/navidrome/navidrome/model"
-	"github.com/navidrome/navidrome/server/subsonic/responses"
+	"github.com/navidrome/navidrome/model/request"
 	"github.com/navidrome/navidrome/tests"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,21 +34,42 @@ var _ = Describe("MediaRetrievalController", func() {
 	var w *httptest.ResponseRecorder
 
 	BeforeEach(func() {
-		for _, key := range []string{
+		keys := []string{
 			"OPENLIST_BASE",
 			"OPENLIST_USER",
 			"OPENLIST_PASS",
 			"OPENLIST_ENABLED",
 			"COVER_ENABLED",
 			"STREAM_ENABLED",
-		} {
+		}
+		originalEnv := make(map[string]*string, len(keys))
+		for _, key := range keys {
+			if value, ok := os.LookupEnv(key); ok {
+				originalEnv[key] = &value
+			}
 			Expect(os.Unsetenv(key)).To(Succeed())
 		}
+		DeferCleanup(func() {
+			for _, key := range keys {
+				if value := originalEnv[key]; value != nil {
+					Expect(os.Setenv(key, *value)).To(Succeed())
+				} else {
+					Expect(os.Unsetenv(key)).To(Succeed())
+				}
+			}
+			Expect(openlist.Bootstrap(nil)).To(Succeed())
+		})
+		albumRepo := &tests.MockAlbumRepo{}
+		albumRepo.SetData(model.Albums{{ID: "34"}}) // the id the specs request, made accessible
+		radioRepo := tests.CreateMockedRadioRepo()
+		Expect(radioRepo.Put(&model.Radio{ID: "rd1", Name: "Radio"})).To(Succeed())
 		ds = &tests.MockDataStore{
 			MockedMediaFile: mockRepo,
+			MockedAlbum:     albumRepo,
+			MockedRadio:     radioRepo,
 		}
 		artwork = &fakeArtwork{data: "image data"}
-		router = New(ds, artwork, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, lyrics.NewLyrics(nil), nil, nil)
+		router = New(ds, artwork, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, lyrics.NewLyrics(ds, nil), nil, nil)
 		w = httptest.NewRecorder()
 		DeferCleanup(configtest.SetupConfig())
 		conf.Server.LyricsPriority = "embedded,.lrc"
@@ -72,6 +94,22 @@ var _ = Describe("MediaRetrievalController", func() {
 			Expect(err).To(BeNil())
 			Expect(artwork.recvId).To(BeEmpty())
 			Expect(w.Body.String()).To(Equal(artwork.data))
+		})
+
+		// The service applies the library filter from the caller's context, so elevating here
+		// would bypass it.
+		It("passes the caller's context to the service rather than elevating", func() {
+			r := newGetRequest("id=al-34")
+			usr := model.User{ID: "u1", UserName: "u1"}
+			r = r.WithContext(request.WithUser(r.Context(), usr))
+
+			_, err := router.GetCoverArt(w, r)
+
+			Expect(err).ToNot(HaveOccurred())
+			got, ok := request.UserFrom(artwork.recvCtx)
+			Expect(ok).To(BeTrue(), "the service must see who is asking")
+			Expect(got.ID).To(Equal("u1"))
+			Expect(got.IsAdmin).To(BeFalse(), "the handler must not elevate")
 		})
 
 		It("should fail when the file is not found", func() {
@@ -235,9 +273,34 @@ var _ = Describe("MediaRetrievalController", func() {
 			Expect(artwork.recvId).To(Equal("mf-song-1"))
 		})
 
+		It("uses the artwork lookup deadline for the OpenList cover lookup", func() {
+			var hasDeadline bool
+			restoreClient := openlist.SetHTTPClientForTests(&http.Client{Transport: coverRoundTripper(func(r *http.Request) (*http.Response, error) {
+				_, hasDeadline = r.Context().Deadline()
+				return nil, errors.New("openlist unavailable")
+			})})
+			DeferCleanup(restoreClient)
+			mockRepo.SetData(model.MediaFiles{{
+				ID:          "song-1",
+				Path:        "Artist/Album/track.flac",
+				LibraryPath: "/music",
+			}})
+			_, err := openlist.Update(ds, openlist.Config{
+				Enabled: true, OpenListBase: "http://openlist.local", OpenListUser: "admin", OpenListPass: "secret", CoverEnabled: true,
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = router.GetCoverArt(w, newGetRequest("id=mf-song-1"))
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(hasDeadline).To(BeTrue())
+			Expect(w.Code).To(Equal(http.StatusOK))
+			Expect(w.Body.String()).To(Equal(artwork.data))
+		})
+
 		When("client disconnects (context is cancelled)", func() {
 			It("should not call the service if cancelled before the call", func() {
-				ctx, cancel := context.WithCancel(context.Background())
+				ctx, cancel := context.WithCancel(GinkgoT().Context())
 				r := newGetRequest("id=34", "size=128", "square=true")
 				r = r.WithContext(ctx)
 				cancel()
@@ -252,7 +315,7 @@ var _ = Describe("MediaRetrievalController", func() {
 			})
 
 			It("should not return data if cancelled during the call", func() {
-				ctx, cancel := context.WithCancel(context.Background())
+				ctx, cancel := context.WithCancel(GinkgoT().Context())
 				defer cancel()
 				r := newGetRequest("id=34", "size=128", "square=true")
 				r = r.WithContext(ctx)
@@ -267,39 +330,71 @@ var _ = Describe("MediaRetrievalController", func() {
 				Expect(w.Body.String()).To(BeEmpty())
 			})
 		})
+
+		Describe("caching headers", func() {
+			const hash = "0123456789abcdef"
+
+			It("sets an ETag and no-cache for a bare id", func() {
+				artwork.hash = hash
+				r := newGetRequest("id=al-34")
+				_, err := router.GetCoverArt(w, r)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(w.Header().Get("ETag")).To(Equal(`"` + hash + `"`))
+				Expect(w.Header().Get("Cache-Control")).To(Equal("public, no-cache"))
+				Expect(w.Body.String()).To(Equal(artwork.data))
+			})
+
+			It("marks the response immutable when the id asserts the current hash", func() {
+				artwork.hash = hash
+				r := newGetRequest("id=al-34_" + hash)
+				_, err := router.GetCoverArt(w, r)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(w.Header().Get("Cache-Control")).To(Equal("public, max-age=31536000, immutable"))
+			})
+
+			It("returns 304 with no body when If-None-Match matches", func() {
+				artwork.hash = hash
+				r := newGetRequest("id=al-34")
+				r.Header.Set("If-None-Match", `"`+hash+`"`)
+				_, err := router.GetCoverArt(w, r)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(w.Code).To(Equal(304))
+				Expect(w.Body.Len()).To(BeZero())
+			})
+
+			It("never caches a placeholder", func() {
+				artwork.placeholder = true
+				r := newGetRequest("id=al-missing")
+				_, err := router.GetCoverArt(w, r)
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(w.Code).To(Equal(200))
+				Expect(w.Header().Get("Cache-Control")).To(Equal("no-store"))
+				Expect(w.Header().Get("ETag")).To(BeEmpty())
+				Expect(w.Body.String()).To(Equal(artwork.data))
+			})
+		})
 	})
 
 	Describe("GetLyrics", func() {
 		It("should return data for given artist & title", func() {
 			r := newGetRequest("artist=Rick+Astley", "title=Never+Gonna+Give+You+Up")
-			lyrics, _ := model.ToLyrics("eng", "[00:18.80]We're no strangers to love\n[00:22.80]You know the rules and so do I")
+			lyricsList, _ := model.ParseLyrics(GinkgoT().Context(), ".lrc", "eng", []byte("[00:18.80]We're no strangers to love\n[00:22.80]You know the rules and so do I"))
+			lyrics, _ := lyricsList.Main()
 			lyricsJson, err := json.Marshal(model.LyricList{
-				*lyrics,
+				lyrics,
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 			mockRepo.SetData(model.MediaFiles{
 				{
-					ID:        "2",
-					Artist:    "Rick Astley",
-					Title:     "Never Gonna Give You Up",
-					Lyrics:    "[]",
-					UpdatedAt: baseTime.Add(2 * time.Hour), // No lyrics, newer
-				},
-				{
-					ID:        "1",
-					Artist:    "Rick Astley",
-					Title:     "Never Gonna Give You Up",
-					Lyrics:    string(lyricsJson),
-					UpdatedAt: baseTime.Add(1 * time.Hour), // Has lyrics, older
-				},
-				{
-					ID:        "3",
-					Artist:    "Rick Astley",
-					Title:     "Never Gonna Give You Up",
-					Lyrics:    "[]",
-					UpdatedAt: baseTime.Add(3 * time.Hour), // No lyrics, newest
+					ID:     "1",
+					Artist: "Rick Astley",
+					Title:  "Never Gonna Give You Up",
+					Lyrics: string(lyricsJson),
 				},
 			})
 			response, err := router.GetLyrics(r)
@@ -307,6 +402,26 @@ var _ = Describe("MediaRetrievalController", func() {
 			Expect(response.Lyrics.Artist).To(Equal("Rick Astley"))
 			Expect(response.Lyrics.Title).To(Equal("Never Gonna Give You Up"))
 			Expect(response.Lyrics.Value).To(Equal("We're no strangers to love\nYou know the rules and so do I\n"))
+		})
+		It("should surface the main-kind track when translation tracks are present", func() {
+			r := newGetRequest("artist=Rick+Astley", "title=Never+Gonna+Give+You+Up")
+			start := int64(0)
+			lyricsJSON, err := json.Marshal(model.LyricList{
+				{Kind: model.LyricKindTranslation, Lang: "por", Line: []model.Line{{Start: &start, Value: "Nunca vou te decepcionar"}}},
+				{Kind: model.LyricKindMain, Lang: "eng", Line: []model.Line{{Start: &start, Value: "Never gonna let you down"}}},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			mockRepo.SetData(model.MediaFiles{
+				{
+					ID:     "1",
+					Artist: "Rick Astley",
+					Title:  "Never Gonna Give You Up",
+					Lyrics: string(lyricsJSON),
+				},
+			})
+			response, err := router.GetLyrics(r)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response.Lyrics.Value).To(Equal("Never gonna let you down\n"))
 		})
 		It("should return empty subsonic response if the record corresponding to the given artist & title is not found", func() {
 			r := newGetRequest("artist=Dheeraj", "title=Rinkiya+Ke+Papa")
@@ -319,18 +434,15 @@ var _ = Describe("MediaRetrievalController", func() {
 		})
 		It("should return lyric file when finding mediafile with no embedded lyrics but present on filesystem", func() {
 			r := newGetRequest("artist=Rick+Astley", "title=Never+Gonna+Give+You+Up")
+			fixturesDir, err := filepath.Abs("tests/fixtures")
+			Expect(err).ToNot(HaveOccurred())
 			mockRepo.SetData(model.MediaFiles{
 				{
-					Path:   "tests/fixtures/test.mp3",
-					ID:     "1",
-					Artist: "Rick Astley",
-					Title:  "Never Gonna Give You Up",
-				},
-				{
-					Path:   "tests/fixtures/test.mp3",
-					ID:     "2",
-					Artist: "Rick Astley",
-					Title:  "Never Gonna Give You Up",
+					LibraryPath: fixturesDir,
+					Path:        "test.mp3",
+					ID:          "1",
+					Artist:      "Rick Astley",
+					Title:       "Never Gonna Give You Up",
 				},
 			})
 			response, err := router.GetLyrics(r)
@@ -340,166 +452,46 @@ var _ = Describe("MediaRetrievalController", func() {
 			Expect(response.Lyrics.Value).To(Equal("We're no strangers to love\nYou know the rules and so do I\n"))
 		})
 	})
-
-	Describe("GetLyricsBySongId", func() {
-		const syncedLyrics = "[00:18.80]We're no strangers to love\n[00:22.801]You know the rules and so do I"
-		const unsyncedLyrics = "We're no strangers to love\nYou know the rules and so do I"
-		const metadata = "[ar:Rick Astley]\n[ti:That one song]\n[offset:-100]"
-		var times = []int64{18800, 22801}
-
-		compareResponses := func(actual *responses.LyricsList, expected responses.LyricsList) {
-			Expect(actual).ToNot(BeNil())
-			Expect(actual.StructuredLyrics).To(HaveLen(len(expected.StructuredLyrics)))
-			for i, realLyric := range actual.StructuredLyrics {
-				expectedLyric := expected.StructuredLyrics[i]
-
-				Expect(realLyric.DisplayArtist).To(Equal(expectedLyric.DisplayArtist))
-				Expect(realLyric.DisplayTitle).To(Equal(expectedLyric.DisplayTitle))
-				Expect(realLyric.Lang).To(Equal(expectedLyric.Lang))
-				Expect(realLyric.Synced).To(Equal(expectedLyric.Synced))
-
-				if expectedLyric.Offset == nil {
-					Expect(realLyric.Offset).To(BeNil())
-				} else {
-					Expect(*realLyric.Offset).To(Equal(*expectedLyric.Offset))
-				}
-
-				Expect(realLyric.Line).To(HaveLen(len(expectedLyric.Line)))
-				for j, realLine := range realLyric.Line {
-					expectedLine := expectedLyric.Line[j]
-					Expect(realLine.Value).To(Equal(expectedLine.Value))
-
-					if expectedLine.Start == nil {
-						Expect(realLine.Start).To(BeNil())
-					} else {
-						Expect(*realLine.Start).To(Equal(*expectedLine.Start))
-					}
-				}
-			}
-		}
-
-		It("should return mixed lyrics", func() {
-			r := newGetRequest("id=1")
-			synced, _ := model.ToLyrics("eng", syncedLyrics)
-			unsynced, _ := model.ToLyrics("xxx", unsyncedLyrics)
-			lyricsJson, err := json.Marshal(model.LyricList{
-				*synced, *unsynced,
-			})
-			Expect(err).ToNot(HaveOccurred())
-
-			mockRepo.SetData(model.MediaFiles{
-				{
-					ID:     "1",
-					Artist: "Rick Astley",
-					Title:  "Never Gonna Give You Up",
-					Lyrics: string(lyricsJson),
-				},
-			})
-
-			response, err := router.GetLyricsBySongId(r)
-			Expect(err).ToNot(HaveOccurred())
-			compareResponses(response.LyricsList, responses.LyricsList{
-				StructuredLyrics: responses.StructuredLyrics{
-					{
-						Lang:          "eng",
-						DisplayArtist: "Rick Astley",
-						DisplayTitle:  "Never Gonna Give You Up",
-						Synced:        true,
-						Line: []responses.Line{
-							{
-								Start: &times[0],
-								Value: "We're no strangers to love",
-							},
-							{
-								Start: &times[1],
-								Value: "You know the rules and so do I",
-							},
-						},
-					},
-					{
-						Lang:          "xxx",
-						DisplayArtist: "Rick Astley",
-						DisplayTitle:  "Never Gonna Give You Up",
-						Synced:        false,
-						Line: []responses.Line{
-							{
-								Value: "We're no strangers to love",
-							},
-							{
-								Value: "You know the rules and so do I",
-							},
-						},
-					},
-				},
-			})
-		})
-
-		It("should parse lrc metadata", func() {
-			r := newGetRequest("id=1")
-			synced, _ := model.ToLyrics("eng", metadata+"\n"+syncedLyrics)
-			lyricsJson, err := json.Marshal(model.LyricList{
-				*synced,
-			})
-			Expect(err).ToNot(HaveOccurred())
-			mockRepo.SetData(model.MediaFiles{
-				{
-					ID:     "1",
-					Artist: "Rick Astley",
-					Title:  "Never Gonna Give You Up",
-					Lyrics: string(lyricsJson),
-				},
-			})
-
-			response, err := router.GetLyricsBySongId(r)
-			Expect(err).ToNot(HaveOccurred())
-
-			compareResponses(response.LyricsList, responses.LyricsList{
-				StructuredLyrics: responses.StructuredLyrics{
-					{
-						DisplayArtist: "Rick Astley",
-						DisplayTitle:  "That one song",
-						Lang:          "eng",
-						Synced:        true,
-						Line: []responses.Line{
-							{
-								Start: &times[0],
-								Value: "We're no strangers to love",
-							},
-							{
-								Start: &times[1],
-								Value: "You know the rules and so do I",
-							},
-						},
-						Offset: new(int64(-100)),
-					},
-				},
-			})
-		})
-	})
 })
 
 type fakeArtwork struct {
 	artwork.Artwork
 	data          string
+	hash          string
+	lastUpdated   time.Time
+	placeholder   bool
 	err           error
 	ctxCancelFunc func()
 	recvId        string
 	recvSize      int
 	recvSquare    bool
+	recvCtx       context.Context
 }
 
-func (c *fakeArtwork) GetOrPlaceholder(_ context.Context, id string, size int, square bool) (io.ReadCloser, time.Time, error) {
+type coverRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f coverRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func (c *fakeArtwork) GetOrPlaceholder(ctx context.Context, id string, size int, square bool) (*artwork.Image, error) {
+	c.recvCtx = ctx
 	if c.err != nil {
-		return nil, time.Time{}, c.err
+		return nil, c.err
 	}
 	c.recvId = id
 	c.recvSize = size
 	c.recvSquare = square
 	if c.ctxCancelFunc != nil {
 		c.ctxCancelFunc()
-		return nil, time.Time{}, context.Canceled
+		return nil, context.Canceled
 	}
-	return io.NopCloser(bytes.NewReader([]byte(c.data))), time.Time{}, nil
+	return &artwork.Image{
+		ReadCloser:  io.NopCloser(bytes.NewReader([]byte(c.data))),
+		Hash:        c.hash,
+		LastUpdated: c.lastUpdated,
+		Placeholder: c.placeholder,
+	}, nil
 }
 
 type mockedMediaFile struct {

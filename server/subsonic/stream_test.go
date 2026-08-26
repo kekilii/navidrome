@@ -21,16 +21,31 @@ var _ = Describe("Stream OpenList", func() {
 	var mediaRepo *tests.MockMediaFileRepo
 
 	BeforeEach(func() {
-		for _, key := range []string{
+		keys := []string{
 			"OPENLIST_BASE",
 			"OPENLIST_USER",
 			"OPENLIST_PASS",
 			"OPENLIST_ENABLED",
 			"COVER_ENABLED",
 			"STREAM_ENABLED",
-		} {
+		}
+		originalEnv := make(map[string]*string, len(keys))
+		for _, key := range keys {
+			if value, ok := os.LookupEnv(key); ok {
+				originalEnv[key] = &value
+			}
 			Expect(os.Unsetenv(key)).To(Succeed())
 		}
+		DeferCleanup(func() {
+			for _, key := range keys {
+				if value := originalEnv[key]; value != nil {
+					Expect(os.Setenv(key, *value)).To(Succeed())
+				} else {
+					Expect(os.Unsetenv(key)).To(Succeed())
+				}
+			}
+			Expect(openlist.Bootstrap(nil)).To(Succeed())
+		})
 
 		mediaRepo = tests.CreateMockMediaFileRepo()
 		mediaRepo.SetData(model.MediaFiles{
@@ -141,13 +156,13 @@ func (f *fakeStreamer) NewStream(_ context.Context, _ *model.MediaFile, _ stream
 	return nil, f.err
 }
 
-var _ = Describe("OpenList stream resolver seam", func() {
-	It("returns empty target when router datastore is missing", func() {
+var _ = Describe("OpenList stream redirect seam", func() {
+	It("does not redirect when router datastore is missing", func() {
 		router := &Router{}
+		w := httptest.NewRecorder()
+		r := newGetRequest("id=song-1")
 
-		target, err := router.resolveOpenListStreamTarget(context.Background(), "song-1")
-
-		Expect(err).ToNot(HaveOccurred())
-		Expect(target).To(BeEmpty())
+		Expect(router.tryRedirectOpenListStream(w, r, "song-1")).To(BeFalse())
+		Expect(w.Header().Get("Location")).To(BeEmpty())
 	})
 })
