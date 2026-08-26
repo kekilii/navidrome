@@ -14,6 +14,7 @@ import (
 	"github.com/navidrome/navidrome/conf"
 	"github.com/navidrome/navidrome/core"
 	"github.com/navidrome/navidrome/core/artwork"
+	"github.com/navidrome/navidrome/core/external"
 	"github.com/navidrome/navidrome/core/metrics"
 	playlistsvc "github.com/navidrome/navidrome/core/playlists"
 	"github.com/navidrome/navidrome/log"
@@ -47,11 +48,12 @@ type Router struct {
 	maintenance   core.Maintenance
 	pluginManager PluginManager
 	imgUpload     artwork.Uploader
+	provider      external.Provider
 }
 
-func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload artwork.Uploader) *Router {
+func New(ds model.DataStore, share core.Share, playlists playlistsvc.Playlists, insights metrics.Insights, libraryService core.Library, userService core.User, maintenance core.Maintenance, pluginManager PluginManager, imgUpload artwork.Uploader, provider external.Provider) *Router {
 	serveropenlist.BootstrapWithLog(ds)
-	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager, imgUpload: imgUpload}
+	r := &Router{ds: ds, share: share, playlists: playlists, insights: insights, libs: libraryService, users: userService, maintenance: maintenance, pluginManager: pluginManager, imgUpload: imgUpload, provider: provider}
 	r.Handler = r.routes()
 	return r
 }
@@ -95,7 +97,7 @@ func (api *Router) routes() http.Handler {
 			api.addConfigRoute(r)
 			api.addUserLibraryRoute(r)
 			api.addPluginRoute(r)
-			api.addArtworkRoute(r)
+			api.addMetadataRoute(r)
 			api.RX(r, "/library", api.libs.NewRepository, true)
 		})
 	})
